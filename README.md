@@ -17,9 +17,11 @@ A small native macOS menu bar app that covers your displays when you look away a
 ## Use
 
 1. Build and open the app using the commands below.
-2. Choose **Enable protection** and allow camera access.
+2. Choose **Enable protection** (or press **⌥⌘P**) and allow camera access.
 3. Face the camera. The screen uncovers after steady attention is detected.
-4. Use the eye icon in the menu bar to pause protection or quit.
+4. Use the eye icon in the menu bar to pause protection, change settings, or quit.
+
+Press **⌥⌘P** (Option-Command-P) at any time to immediately toggle protection on or off with a global shortcut without opening the menu.
 
 Choose **Preview for 5 seconds** to see the frozen blur, logo, and message without looking away. It works while protection is paused. Preview and enabling protection can ask for Screen Recording permission because they may create a snapshot; select **Screen Capture Permission…** in the menu to request it directly. Selecting Preview again restarts its five-second timer. Afterward, the app returns to normal protection behavior; an active cover stays on if attention detection still requires it.
 
@@ -27,11 +29,15 @@ Choose **Preview for 5 seconds** to see the frozen blur, logo, and message witho
 
 **Blur level** controls how strongly the frozen cover blurs the screen. Dragging right keeps text more readable; dragging left hides more of the snapshot. The default is the middle, the app's original blur strength.
 
+Use the **Camera** submenu to select between available FaceTime, external webcams, or Continuity Cameras, or leave it on **Automatic**. If your MacBook is closed in clamshell mode, it automatically ignores the suspended internal camera and falls back to connected external cameras.
+
+Choose **Launch at Login** to launch Screen Privacy automatically whenever you log into your Mac.
+
 Choose **Custom message…** to set the text beneath the logo. It is limited to 120 characters and displayed in at most three lines, with automatic font sizing. The centered overlay stays within one third of each screen's width and height; unusually wide text is truncated if needed to keep it readable. Leave the message blank to show “Screen Privacy”.
 
 All preferences are stored locally and persist between launches. Protection also resumes on subsequent launches if it was enabled and camera permission remains available.
 
-Keep your camera close to your screen's center. This app estimates head direction relative to the camera, not your eye gaze or which monitor you are reading. Looking only with your eyes may not trigger the cover. There is no camera picker or calibration flow.
+Keep your camera close to your screen's center. This app estimates head direction relative to the camera, not your eye gaze or which monitor you are reading. Looking only with your eyes may not trigger the cover.
 
 ## Build
 
@@ -66,7 +72,7 @@ See [release instructions](docs/RELEASING.md) for universal builds, signing, not
 
 - Camera frames are analyzed in memory on your Mac and discarded. No uploads, analytics, accounts, or network requests.
 - Camera permission is required for attention detection. The camera indicator remains visible while camera capture is active. Microphone and Accessibility permissions are not requested.
-- Screen Recording permission is optional and is requested only when you choose **Screen Capture Permission…**, enable protection, or start Preview. With permission, the app takes at most one CoreGraphics window-list image per display when making a cover, capturing below its own cover window so the cover is not captured into itself. It downsizes each image to a longest edge of at most 1600 pixels, applies a Gaussian blur (adjustable in the menu, by default about 12 screen points), and keeps only that blurred image for the visible cover. It does not capture audio, make video recordings, or continuously capture the screen. The unblurred image is transient memory only; no screen image is written to disk or sent over the network.
+- Screen Recording permission is optional and is requested only when you choose **Screen Capture Permission…**, enable protection, or start Preview. With permission, the app takes at most one ScreenCaptureKit snapshot (with CoreGraphics fallback) per display when making a cover, capturing below its own cover window so the cover is not captured into itself. It downsizes each image to a longest edge of at most 1600 pixels, applies a Gaussian blur (adjustable in the menu, by default about 12 screen points), and keeps only that blurred image for the visible cover. It does not capture audio, make video recordings, or continuously capture the screen. The unblurred image is transient memory only; no screen image is written to disk or sent over the network.
 - If Screen Recording permission is missing or capture fails, the app keeps an opaque neutral cover. Protected/DRM content may be blanked by macOS within an otherwise usable snapshot. macOS can require the app to relaunch after a Screen Recording permission change.
 - A frozen snapshot is safer than a live transparent or continuously updated blur for this purpose: once the snapshot is captured, later messages and window changes are not revealed beneath it. It also avoids the washed-out appearance of a system material blur and limits screen capture to cover transitions. This is a relative privacy benefit, not a security guarantee: the original scene can remain recognizable through blur.
 - This is **not authentication or a screen lock**. Any single person facing the camera can uncover the screen. Face detection can miss bystanders, fail in low light, or be fooled by an image.

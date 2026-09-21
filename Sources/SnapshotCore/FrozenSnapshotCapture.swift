@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreImage
 import Foundation
+import ScreenCaptureKit
 
 public struct SnapshotDisplay: Sendable {
     public let id: CGDirectDisplayID
@@ -33,8 +34,7 @@ public struct SnapshotDisplay: Sendable {
     var blurRadius: Double { (18 - 12 * blurStrength) * scale }
 }
 
-/// Captures each display once with CoreGraphics and blurs the result off the main actor.
-/// The cover window ID makes the capture independent of the app/window discovery API.
+/// Captures each display once with ScreenCaptureKit (or CoreGraphics fallback) and blurs the result off the main actor.
 public actor FrozenSnapshotCapture {
     private let context = CIContext(options: [.cacheIntermediates: false])
     private var busy = false
@@ -46,24 +46,57 @@ public actor FrozenSnapshotCapture {
         busy = true
         defer { busy = false }
         try Task.checkCancellation()
+
         var images: [CGDirectDisplayID: CGImage] = [:]
+
+        // Query shareable content for modern ScreenCaptureKit capture.
+        var scFailed = false
+        var shareableContent: SCShareableContent?
+        do {
+            shareableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            scFailed = true
+        }
+
         for request in requested {
             try Task.checkCancellation()
-            let bounds = request.screenRect
-            let option: CGWindowListOption = request.coverWindowID == kCGNullWindowID
-                ? .optionOnScreenOnly
-                : .optionOnScreenBelowWindow
-            let raw = CGWindowListCreateImage(bounds, option, request.coverWindowID,
+            var raw: CGImage?
+
+            // 1. Try ScreenCaptureKit (GPU-accelerated, async, modern macOS 14+ standard)
+            if !scFailed, let content = shareableContent,
+               let display = content.displays.first(where: { $0.displayID == request.id }) {
+                do {
+                    let excludedWindows = content.windows.filter { $0.windowID == request.coverWindowID }
+                    let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+                    let config = SCStreamConfiguration()
+                    config.width = request.width
+                    config.height = request.height
+                    config.scalesToFit = true
+                    config.showsCursor = false
+                    raw = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+                } catch {
+                    raw = nil
+                }
+            }
+
+            // 2. Legacy fallback to CGWindowListCreateImage if ScreenCaptureKit was unavailable or failed
+            if raw == nil {
+                let bounds = request.screenRect
+                let option: CGWindowListOption = request.coverWindowID == kCGNullWindowID
+                    ? .optionOnScreenOnly
+                    : .optionOnScreenBelowWindow
+                raw = CGWindowListCreateImage(bounds, option, request.coverWindowID,
                                               [.bestResolution, .boundsIgnoreFraming])
-            guard let raw else {
-                print("Screen Privacy: CoreGraphics snapshot failed for display \(request.id)")
+            }
+
+            guard let rawImage = raw else {
+                print("Screen Privacy: snapshot capture failed for display \(request.id)")
                 continue
             }
+
             try Task.checkCancellation()
-            // Only the blurred image crosses back to the UI. Raw pixels are
-            // transient; nothing is written to disk, logged, or transmitted.
             if let blurred = autoreleasepool(invoking: {
-                SnapshotBlur.render(raw, radius: request.blurRadius, context: context)
+                SnapshotBlur.render(rawImage, radius: request.blurRadius, context: context)
             }) {
                 images[request.id] = blurred
             }

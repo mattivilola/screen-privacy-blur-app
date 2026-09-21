@@ -1,7 +1,9 @@
 import AppKit
 import AVFoundation
 import AttentionCore
+import Carbon.HIToolbox
 import OverlayUI
+import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -13,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appMenu: NSMenu!
     private let stateItem = NSMenuItem(title: "Paused", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "Enable protection", action: #selector(toggle), keyEquivalent: "")
+    private let cameraMenuItem = NSMenuItem(title: "Camera", action: nil, keyEquivalent: "")
+    private let cameraSubmenu = NSMenu(title: "Camera")
+    private let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+    private var hotKeyRef: EventHotKeyRef?
     private var enabled = false
     private var permissionPending = false
     private var sleeping = false
@@ -34,11 +40,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let icon = appIcon {
             NSApp.applicationIconImage = icon
         }
+        camera.preferredDeviceID = defaults.string(forKey: "selectedCameraID")
         attention.tolerance = defaults.object(forKey: "tolerance") as? Double ?? 0.5
         cover.message = defaults.string(forKey: "coverMessage") ?? ""
         cover.blurStrength = blurStrength
         buildMenu()
         observeLifecycle()
+        registerGlobalHotKey()
         // This launch-only switch supports bundle smoke tests without camera access.
         if CommandLine.arguments.contains("--smoke-test") {
             print("Screen Privacy launched; menu ready; camera not started")
@@ -63,22 +71,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stateItem.isEnabled = false
         menu.addItem(stateItem)
         toggleItem.target = self
+        toggleItem.keyEquivalent = "p"
+        toggleItem.keyEquivalentModifierMask = [.option, .command]
         menu.addItem(toggleItem)
         menu.addItem(.separator())
 
         menu.addItem(controlItem(title: "Tolerance", value: attention.tolerance,
-                                 caption: "Stricter                           More forgiving",
+                                 leftLabel: "Stricter", rightLabel: "More forgiving",
                                  action: #selector(changeTolerance(_:)),
                                  accessibility: "Head position and look-away tolerance",
                                  tooltip: "Higher tolerance allows more head movement and waits longer before covering."))
         menu.addItem(controlItem(title: "Blur level", value: blurStrength,
-                                 caption: "Almost fully blurred        Almost readable",
+                                 leftLabel: "Heavy blur", rightLabel: "Readable",
                                  action: #selector(changeBlurStrength(_:)),
                                  accessibility: "Cover blur level",
                                  tooltip: "Drag left to hide more of the cover; right keeps text more readable."))
         let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
         message.target = self
         menu.addItem(message)
+        menu.addItem(.separator())
+
+        cameraMenuItem.submenu = cameraSubmenu
+        updateCameraMenu()
+        menu.addItem(cameraMenuItem)
+
+        launchAtLoginItem.target = self
+        updateLaunchAtLoginState()
+        menu.addItem(launchAtLoginItem)
         menu.addItem(.separator())
 
         let preview = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
@@ -261,8 +280,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             : min(max(value.isFinite ? value : Self.defaultBlurStrength, 0), 1)
     }
 
-    /// Shared layout for the embedded slider controls, matching the original Tolerance row.
-    private func controlItem(title: String, value: Double, caption: String,
+    /// Shared layout for the embedded slider controls with pixel-perfect left and right labels.
+    private func controlItem(title: String, value: Double, leftLabel: String, rightLabel: String,
                              action: Selector, accessibility: String, tooltip: String) -> NSMenuItem {
         let control = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 86))
         let label = NSTextField(labelWithString: title)
@@ -275,11 +294,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         slider.setAccessibilityLabel(accessibility)
         slider.toolTip = tooltip
         control.addSubview(slider)
-        let captionField = NSTextField(labelWithString: caption)
-        captionField.font = .systemFont(ofSize: 11)
-        captionField.textColor = .secondaryLabelColor
-        captionField.frame = NSRect(x: 18, y: 10, width: 215, height: 16)
-        control.addSubview(captionField)
+        let leftField = NSTextField(labelWithString: leftLabel)
+        leftField.font = .systemFont(ofSize: 11)
+        leftField.textColor = .secondaryLabelColor
+        leftField.frame = NSRect(x: 18, y: 10, width: 105, height: 16)
+        control.addSubview(leftField)
+        let rightField = NSTextField(labelWithString: rightLabel)
+        rightField.font = .systemFont(ofSize: 11)
+        rightField.textColor = .secondaryLabelColor
+        rightField.alignment = .right
+        rightField.frame = NSRect(x: 125, y: 10, width: 109, height: 16)
+        control.addSubview(rightField)
         let item = NSMenuItem()
         item.view = control
         return item
@@ -288,6 +313,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func changeBlurStrength(_ sender: NSSlider) {
         cover.blurStrength = sender.doubleValue
         defaults.set(cover.blurStrength, forKey: "blurStrength")
+    }
+
+    private func updateCameraMenu() {
+        cameraSubmenu.removeAllItems()
+        let devices = CameraMonitor.availableDevices()
+        let selectedID = defaults.string(forKey: "selectedCameraID")
+
+        let autoItem = NSMenuItem(title: "Automatic", action: #selector(selectCamera(_:)), keyEquivalent: "")
+        autoItem.target = self
+        autoItem.representedObject = nil
+        autoItem.state = selectedID == nil ? .on : .off
+        cameraSubmenu.addItem(autoItem)
+        cameraSubmenu.addItem(.separator())
+
+        if devices.isEmpty {
+            let noneItem = NSMenuItem(title: "No Cameras Found", action: nil, keyEquivalent: "")
+            noneItem.isEnabled = false
+            cameraSubmenu.addItem(noneItem)
+        } else {
+            for device in devices {
+                let title = device.isSuspended ? "\(device.localizedName) (Closed/Suspended)" : device.localizedName
+                let item = NSMenuItem(title: title, action: #selector(selectCamera(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = device.id
+                item.state = selectedID == device.id ? .on : .off
+                item.isEnabled = !device.isSuspended
+                cameraSubmenu.addItem(item)
+            }
+        }
+    }
+
+    @objc private func selectCamera(_ sender: NSMenuItem) {
+        let deviceID = sender.representedObject as? String
+        defaults.set(deviceID, forKey: "selectedCameraID")
+        camera.preferredDeviceID = deviceID
+        updateCameraMenu()
+        if enabled && !suspended {
+            resume()
+        }
+    }
+
+    private func updateLaunchAtLoginState() {
+        let isEnabled = SMAppService.mainApp.status == .enabled
+        launchAtLoginItem.state = isEnabled ? .on : .off
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            print("Screen Privacy: Launch at login failed: \(error)")
+        }
+        updateLaunchAtLoginState()
+    }
+
+    private func registerGlobalHotKey() {
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
+            guard let userData else { return noErr }
+            let app = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+            Task { @MainActor in
+                app.toggle()
+            }
+            return noErr
+        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
+
+        let hotKeyID = EventHotKeyID(signature: OSType(0x53505256) /* 'SPRV' */, id: 1)
+        let status = RegisterEventHotKey(UInt32(kVK_ANSI_P), UInt32(cmdKey | optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        if status != noErr {
+            print("Screen Privacy: Could not register global hotkey (status: \(status))")
+        }
     }
 
     private func updateStatus(_ text: String) {
@@ -332,8 +432,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observe(Notification.Name("com.apple.screenIsUnlocked"), center: distributed) { $0.screenLocked = false; $0.lifecycleChanged() }
         observe(NSApplication.didChangeScreenParametersNotification, center: .default) { $0.cover.rebuild() }
         observe(NSApplication.didBecomeActiveNotification, center: .default) { $0.cover.refreshSnapshotIfNeeded() }
-        observe(AVCaptureDevice.wasDisconnectedNotification, center: .default) { $0.lifecycleChanged() }
-        observe(AVCaptureDevice.wasConnectedNotification, center: .default) { $0.lifecycleChanged() }
+        observe(AVCaptureDevice.wasDisconnectedNotification, center: .default) { app in
+            app.updateCameraMenu()
+            app.lifecycleChanged()
+        }
+        observe(AVCaptureDevice.wasConnectedNotification, center: .default) { app in
+            app.updateCameraMenu()
+            app.lifecycleChanged()
+        }
         observe(AVCaptureSession.runtimeErrorNotification, center: .default) { app in
             guard app.enabled, !app.suspended else { return }
             app.setCoverVisible(app.attention.unavailable())
@@ -452,6 +558,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
         endPreview()
         stopCapture()
         setCoverVisible(false)

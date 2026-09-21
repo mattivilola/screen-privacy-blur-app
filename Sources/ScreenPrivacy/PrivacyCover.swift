@@ -35,14 +35,30 @@ final class PrivacyCover {
         guard visible != isVisible else { return }
         isVisible = visible
         if visible {
-            if panels.isEmpty { rebuild() }
-            else {
-                panels.forEach { $0.orderFrontRegardless() }
+            if panels.isEmpty {
+                rebuild()
+            } else {
+                panels.forEach {
+                    $0.alphaValue = 0
+                    $0.orderFrontRegardless()
+                }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    panels.forEach { $0.animator().alphaValue = 1.0 }
+                }
                 refreshSnapshotIfNeeded()
             }
         } else {
             discardSnapshot()
-            panels.forEach { $0.orderOut(nil) }
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.15
+                panels.forEach { $0.animator().alphaValue = 0.0 }
+            }, completionHandler: { [weak self] in
+                Task { @MainActor in
+                    guard let self, !self.isVisible else { return }
+                    self.panels.forEach { $0.orderOut(nil) }
+                }
+            })
         }
     }
 
@@ -67,6 +83,7 @@ final class PrivacyCover {
             panel.ignoresMouseEvents = true
             panel.hidesOnDeactivate = false
             panel.isReleasedWhenClosed = false
+            panel.alphaValue = 0
 
             let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
             let imageView = NSImageView(frame: content.bounds)
@@ -83,6 +100,10 @@ final class PrivacyCover {
             panel.setFrame(screen.frame, display: true)
             panel.orderFrontRegardless()
             panels.append(panel)
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            panels.forEach { $0.animator().alphaValue = 1.0 }
         }
         refreshSnapshotIfNeeded()
     }

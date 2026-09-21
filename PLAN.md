@@ -12,7 +12,13 @@ The app processes camera frames locally, makes no network requests, and does not
 - AVFoundation capture and Vision head-pose analysis with bounded serial processing.
 - Attention hysteresis, debounce, conservative recovery, and missing-frame protection.
 - Menu bar controls, camera permission onboarding, display covers, and lifecycle handling.
-- One-shot CoreGraphics window-list snapshots per display, captured below and excluding this app's cover window: longest edge capped at 1600 pixels, Gaussian blur near 12 screen points, and no white tint.
+- ScreenCaptureKit GPU-accelerated capture (macOS 14+ / macOS 15 Sequoia) with legacy CoreGraphics fallback, excluding cover windows.
+- Multi-camera discovery with dynamic menu selection, Continuity Camera support, and automatic clamshell fallback.
+- Hardware sensor frame rate throttling to the lowest supported hardware FPS to reduce battery consumption.
+- Carbon global hotkey (⌥⌘P) for zero-permission instant protection toggle.
+- Launch at Login via modern SMAppService.
+- Smooth cross-dissolve fade transitions on cover appearance and disappearance.
+- Polished two-column slider layouts for Tolerance and Blur level controls.
 - Opaque neutral cover shown immediately and retained as the fallback for missing permission or capture failure; macOS may blank protected/DRM content inside a snapshot.
 - Screen Recording requested only through **Screen Capture Permission…**, enable protection, or Preview; relaunch guidance when macOS requires it after a grant.
 - Snapshot lifecycle clears images on uncover, pause, sleep, lock, wake, and display changes, with no capture while suspended or locked.

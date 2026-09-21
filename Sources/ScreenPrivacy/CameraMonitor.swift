@@ -7,6 +7,18 @@ enum CameraEvent: Sendable {
     case unavailable(String)
 }
 
+public struct CameraDevice: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let localizedName: String
+    public let isSuspended: Bool
+
+    public init(id: String, localizedName: String, isSuspended: Bool = false) {
+        self.id = id
+        self.localizedName = localizedName
+        self.isSuspended = isSuspended
+    }
+}
+
 /// All mutable capture state is confined to `queue`, including delegate callbacks.
 /// The only cross-queue values are immutable events and the sendable callback.
 final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
@@ -14,18 +26,48 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var session: AVCaptureSession?
     private var sink: (@Sendable (CameraEvent) -> Void)?
     private var lastAnalysis: TimeInterval = 0
+    var preferredDeviceID: String?
     private let request: VNDetectFaceRectanglesRequest = {
         let request = VNDetectFaceRectanglesRequest()
         request.revision = VNDetectFaceRectanglesRequestRevision3
         return request
     }()
 
+    static func availableDevices() -> [CameraDevice] {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .externalUnknown, .continuityCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+        return discovery.devices.map {
+            CameraDevice(id: $0.uniqueID, localizedName: $0.localizedName, isSuspended: $0.isSuspended)
+        }
+    }
+
     func start(deliver: @escaping @Sendable (CameraEvent) -> Void) {
         queue.async { [self] in
             stopOnQueue()
             sink = deliver
             do {
-                guard let camera = AVCaptureDevice.default(for: .video) else {
+                let discovery = AVCaptureDevice.DiscoverySession(
+                    deviceTypes: [.builtInWideAngleCamera, .externalUnknown, .continuityCamera],
+                    mediaType: .video,
+                    position: .unspecified
+                )
+                let available = discovery.devices
+
+                // Prefer user-selected device -> system default -> first active non-suspended device
+                let camera: AVCaptureDevice?
+                if let preferredID = preferredDeviceID,
+                   let match = available.first(where: { $0.uniqueID == preferredID && !$0.isSuspended }) {
+                    camera = match
+                } else if let defaultCam = AVCaptureDevice.default(for: .video), !defaultCam.isSuspended {
+                    camera = defaultCam
+                } else {
+                    camera = available.first(where: { !$0.isSuspended }) ?? available.first
+                }
+
+                guard let camera else {
                     deliver(.unavailable("No camera available"))
                     return
                 }
@@ -50,16 +92,19 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 capture.addOutput(output)
                 capture.commitConfiguration()
 
-                // Request a low capture rate when supported. Analysis stays capped
-                // independently for cameras whose hardware minimum is higher.
+                // Hardware throttling: request 4 FPS if supported; otherwise throttle sensor
+                // to the lowest supported frame rate (longest frame duration) to save battery.
                 try camera.lockForConfiguration()
-                if let range = camera.activeFormat.videoSupportedFrameRateRanges.first(where: {
-                    $0.minFrameRate <= 4 && $0.maxFrameRate >= 4
-                }) {
-                    let duration = CMTime(value: 1, timescale: 4)
-                    if CMTimeCompare(duration, range.maxFrameDuration) <= 0 {
-                        camera.activeVideoMinFrameDuration = duration
-                        camera.activeVideoMaxFrameDuration = duration
+                if let lowestRange = camera.activeFormat.videoSupportedFrameRateRanges.min(by: { $0.minFrameRate < $1.minFrameRate }) {
+                    if lowestRange.minFrameRate <= 4 && lowestRange.maxFrameRate >= 4 {
+                        let duration = CMTime(value: 1, timescale: 4)
+                        if CMTimeCompare(duration, lowestRange.maxFrameDuration) <= 0 {
+                            camera.activeVideoMinFrameDuration = duration
+                            camera.activeVideoMaxFrameDuration = duration
+                        }
+                    } else {
+                        camera.activeVideoMinFrameDuration = lowestRange.maxFrameDuration
+                        camera.activeVideoMaxFrameDuration = lowestRange.maxFrameDuration
                     }
                 }
                 camera.unlockForConfiguration()

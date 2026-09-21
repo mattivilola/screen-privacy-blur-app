@@ -1,15 +1,25 @@
 import AppKit
 import OverlayUI
+import SnapshotCore
 
 @MainActor
 final class PrivacyCover {
     private var panels: [NSPanel] = []
     private var brandingViews: [CoverBrandingView] = []
+    private var imageViews: [CGDirectDisplayID: NSImageView] = [:]
+    private let snapshots = FrozenSnapshotCapture()
+    private var captureTask: Task<Void, Never>?
+    private var captureID = UUID()
     private(set) var isVisible = false
-    var message = "" {
+    var captureAllowed = true {
         didSet {
-            brandingViews.forEach { $0.updateMessage(message) }
+            guard captureAllowed != oldValue else { return }
+            discardSnapshot()
+            if captureAllowed { refreshSnapshotIfNeeded() }
         }
+    }
+    var message = "" {
+        didSet { brandingViews.forEach { $0.updateMessage(message) } }
     }
 
     func setVisible(_ visible: Bool) {
@@ -17,44 +27,85 @@ final class PrivacyCover {
         isVisible = visible
         if visible {
             if panels.isEmpty { rebuild() }
-            else { panels.forEach { $0.orderFrontRegardless() } }
+            else {
+                panels.forEach { $0.orderFrontRegardless() }
+                refreshSnapshotIfNeeded()
+            }
         } else {
+            discardSnapshot()
             panels.forEach { $0.orderOut(nil) }
         }
     }
 
     func rebuild() {
-        panels.forEach { $0.orderOut(nil) }
-        panels.removeAll()
-        brandingViews.removeAll()
+        discardSnapshot()
+        let oldPanels = panels
+        panels = []
+        brandingViews = []
+        imageViews = [:]
+        // Leave old covers visible until the new neutral covers have been ordered
+        // front, so changing displays does not deliberately expose the desktop.
+        defer { oldPanels.forEach { $0.orderOut(nil) } }
         guard isVisible else { return }
         for screen in NSScreen.screens {
             let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                 backing: .buffered, defer: false)
             panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue - 1)
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-            panel.isOpaque = false
-            panel.backgroundColor = .clear
+            panel.isOpaque = true
+            panel.backgroundColor = .windowBackgroundColor
             panel.hasShadow = false
             panel.ignoresMouseEvents = true
             panel.hidesOnDeactivate = false
             panel.isReleasedWhenClosed = false
 
-            let blur = NSVisualEffectView(frame: NSRect(origin: .zero, size: screen.frame.size))
-            // Under-window material heavily flattens colors on macOS and can
-            // resemble a solid gray cover. Full-screen material keeps the live
-            // desktop recognizable through the system-composited blur.
-            blur.material = .fullScreenUI
-            blur.blendingMode = .behindWindow
-            blur.state = .active
+            let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            let imageView = NSImageView(frame: content.bounds)
+            imageView.imageScaling = .scaleAxesIndependently
+            imageView.setAccessibilityElement(false)
+            content.addSubview(imageView)
+            if let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+                imageViews[id.uint32Value] = imageView
+            }
             let branding = CoverBrandingView(screenSize: screen.frame.size, message: message, icon: appIcon)
-            blur.addSubview(branding)
+            content.addSubview(branding)
             brandingViews.append(branding)
-            panel.contentView = blur
+            panel.contentView = content
             panel.setFrame(screen.frame, display: true)
             panel.orderFrontRegardless()
             panels.append(panel)
         }
+        refreshSnapshotIfNeeded()
+    }
+
+    func refreshSnapshotIfNeeded() {
+        guard isVisible, captureAllowed, captureTask == nil,
+              imageViews.values.allSatisfy({ $0.image == nil }),
+              CGPreflightScreenCaptureAccess() else { return }
+        let displays = NSScreen.screens.compactMap { screen -> SnapshotDisplay? in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+            return SnapshotDisplay(id: id.uint32Value, pointWidth: screen.frame.width, pointHeight: screen.frame.height)
+        }
+        let token = UUID()
+        captureID = token
+        let snapshots = snapshots
+        captureTask = Task { [weak self] in
+            let images = (try? await snapshots.capture(displays: displays)) ?? [:]
+            guard let self, !Task.isCancelled, self.isVisible, self.captureAllowed, self.captureID == token else { return }
+            for (id, image) in images {
+                guard let view = self.imageViews[id] else { continue }
+                view.image = NSImage(cgImage: image, size: view.bounds.size)
+            }
+            self.captureTask = nil
+        }
+    }
+
+    private func discardSnapshot() {
+        captureID = UUID()
+        captureTask?.cancel()
+        captureTask = nil
+        // Release the frozen image at uncover, suspension, or display changes.
+        imageViews.values.forEach { $0.image = nil }
     }
 
     private var appIcon: NSImage? {

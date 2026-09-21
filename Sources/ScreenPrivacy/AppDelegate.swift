@@ -84,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
         message.target = self
         menu.addItem(message)
+        let screenAccess = NSMenuItem(title: "Screen Capture Permission…", action: #selector(screenCapturePermission), keyEquivalent: "")
+        screenAccess.target = self
+        menu.addItem(screenAccess)
         menu.addItem(.separator())
         let about = NSMenuItem(title: "About Screen Privacy…", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
@@ -111,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func previewCover() {
         guard !suspended else { return }
+        explainScreenCaptureIfNeeded()
         previewTimer?.invalidate()
         let token = UUID()
         previewID = token
@@ -150,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func enableWithPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
+            explainScreenCaptureIfNeeded()
             enabled = true
             defaults.set(true, forKey: "enabled")
             resume()
@@ -264,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func lifecycleChanged() {
+        cover.captureAllowed = !suspended
         if suspended { endPreview() }
         if enabled { resume() }
     }
@@ -281,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observe(Notification.Name("com.apple.screenIsLocked"), center: distributed) { $0.screenLocked = true; $0.lifecycleChanged() }
         observe(Notification.Name("com.apple.screenIsUnlocked"), center: distributed) { $0.screenLocked = false; $0.lifecycleChanged() }
         observe(NSApplication.didChangeScreenParametersNotification, center: .default) { $0.cover.rebuild() }
+        observe(NSApplication.didBecomeActiveNotification, center: .default) { $0.cover.refreshSnapshotIfNeeded() }
         observe(AVCaptureDevice.wasDisconnectedNotification, center: .default) { $0.lifecycleChanged() }
         observe(AVCaptureDevice.wasConnectedNotification, center: .default) { $0.lifecycleChanged() }
         observe(AVCaptureSession.runtimeErrorNotification, center: .default) { app in
@@ -293,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showIntroduction() {
         let alert = NSAlert()
         alert.messageText = "Privacy when you look away"
-        alert.informativeText = "Screen Privacy uses your camera to estimate head direction and covers your displays when you look away. Camera frames stay on this Mac and are never saved. The camera indicator stays on while protection is active.\n\nUse the eye icon in the menu bar to pause or adjust tolerance. This does not identify you or replace locking your Mac."
+        alert.informativeText = "Screen Privacy uses your camera to estimate head direction and covers your displays when you look away. Camera frames stay on this Mac and are never saved. The camera indicator stays on while protection is active.\n\nWith Screen Recording permission, the cover shows a locally blurred, frozen screenshot. New messages and window changes do not appear through it. Images stay in memory and are discarded when you return. Without permission, an opaque cover is used.\n\nUse the eye icon in the menu bar to pause or adjust tolerance. This does not identify you or replace locking your Mac."
         alert.addButton(withTitle: "Enable protection")
         alert.addButton(withTitle: "Later")
         NSApp.activate(ignoringOtherApps: true)
@@ -304,12 +311,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "Screen Privacy"
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
-        alert.informativeText = "Version \(version) · Open source under the MIT License\n\nThis app was made with ❤️ by Matti Vilola (iloapps.com)\n\nLocal head-direction detection. No recording, network requests, or accounts. Higher tolerance allows more movement and waits longer before covering.\n\nAny single person facing the camera can uncover the screen. Blur may leave content recognizable, and system UI can appear above the cover. Lock your Mac for security."
+        alert.informativeText = "Version \(version) · Open source under the MIT License\n\nThis app was made with ❤️ by Matti Vilola (iloapps.com)\n\nLocal head-direction detection. Higher tolerance allows more movement and waits longer before covering.\n\nWhy a frozen cover? A blurred screenshot hides later messages and window changes instead of showing a live view. It needs Screen Recording permission, but takes only a still image per display when covering. Images stay in memory and are discarded on return; no saved recordings, network requests, or accounts. Without permission, the cover is opaque.\n\nAny single person facing the camera can uncover the screen. The frozen image may remain recognizable, and system UI can appear above it. Lock your Mac for security."
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
 
     @objc private func quitApp() { NSApp.terminate(nil) }
+
+    private func explainScreenCaptureIfNeeded() {
+        guard !CGPreflightScreenCaptureAccess(), !defaults.bool(forKey: "screenCaptureExplained") else { return }
+        screenCapturePermission()
+    }
+
+    @objc private func screenCapturePermission() {
+        if CGPreflightScreenCaptureAccess() {
+            cover.refreshSnapshotIfNeeded()
+            let alert = NSAlert()
+            alert.messageText = "Screen capture is allowed"
+            alert.informativeText = "The cover uses a blurred, frozen screenshot. Images are kept only in memory and discarded when the cover clears."
+            alert.window.level = .statusBar
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
+        defaults.set(true, forKey: "screenCaptureExplained")
+        let alert = NSAlert()
+        alert.messageText = "Allow a frozen, blurred screen cover"
+        alert.informativeText = "Screen Privacy takes one still image per display when covering, blurs it locally, and keeps it frozen so later messages and window changes stay hidden. Nothing is saved or sent anywhere.\n\nmacOS calls this Screen Recording permission. Without it, protection uses an opaque cover. After granting access, macOS may ask you to quit and reopen the app."
+        alert.addButton(withTitle: "Allow Screen Capture")
+        alert.addButton(withTitle: "Use Opaque Cover")
+        alert.window.level = .statusBar
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if CGRequestScreenCaptureAccess() {
+            cover.refreshSnapshotIfNeeded()
+        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         endPreview()

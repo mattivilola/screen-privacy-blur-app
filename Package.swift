@@ -8,8 +8,10 @@ let package = Package(
     targets: [
         .target(name: "AttentionCore"),
         .target(name: "OverlayUI"),
-        .executableTarget(name: "ScreenPrivacy", dependencies: ["AttentionCore", "OverlayUI"]),
+        .target(name: "SnapshotCore"),
+        .executableTarget(name: "ScreenPrivacy", dependencies: ["AttentionCore", "OverlayUI", "SnapshotCore"]),
         .testTarget(name: "AttentionCoreTests", dependencies: ["AttentionCore"]),
-        .testTarget(name: "OverlayUITests", dependencies: ["OverlayUI"])
+        .testTarget(name: "OverlayUITests", dependencies: ["OverlayUI"]),
+        .testTarget(name: "SnapshotCoreTests", dependencies: ["SnapshotCore"])
     ]
 )

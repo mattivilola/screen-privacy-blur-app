@@ -12,11 +12,12 @@ The app processes camera frames locally, makes no network requests, and does not
 - AVFoundation capture and Vision head-pose analysis with bounded serial processing.
 - Attention hysteresis, debounce, conservative recovery, and missing-frame protection.
 - Menu bar controls, camera permission onboarding, display covers, and lifecycle handling.
-- One-shot ScreenCaptureKit snapshots per display, excluding this app's own windows: longest edge capped at 1600 pixels, Gaussian blur near 12 screen points, and no white tint.
+- One-shot CoreGraphics window-list snapshots per display, captured below and excluding this app's cover window: longest edge capped at 1600 pixels, Gaussian blur near 12 screen points, and no white tint.
 - Opaque neutral cover shown immediately and retained as the fallback for missing permission or capture failure; macOS may blank protected/DRM content inside a snapshot.
 - Screen Recording requested only through **Screen Capture Permission…**, enable protection, or Preview; relaunch guidance when macOS requires it after a grant.
 - Snapshot lifecycle clears images on uncover, pause, sleep, lock, wake, and display changes, with no capture while suspended or locked.
-- Persistent tolerance setting.
+- Persistent blur-level slider that re-blurs a visible cover once the drag settles, mapping the strength to a Gaussian radius between 6 and 18 screen points.
+- Persistent tolerance and blur level settings.
 - Locally saved custom message with a 120-character limit, three-line maximum, and a centered overlay bounded by one third of each display.
 - Attention regression tests and release-signing guard tests.
 - Local app builds, universal release builds, signing, notarization, ZIP/DMG packaging, and CI workflows.

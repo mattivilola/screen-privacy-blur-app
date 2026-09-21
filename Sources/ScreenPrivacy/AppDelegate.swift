@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let cover = PrivacyCover()
     private var attention = AttentionState()
     private var statusItem: NSStatusItem!
+    private var appMenu: NSMenu!
     private let stateItem = NSMenuItem(title: "Paused", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "Enable protection", action: #selector(toggle), keyEquivalent: "")
     private var enabled = false
@@ -32,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         attention.tolerance = defaults.object(forKey: "tolerance") as? Double ?? 0.5
         cover.message = defaults.string(forKey: "coverMessage") ?? ""
+        cover.blurStrength = blurStrength
         buildMenu()
         observeLifecycle()
         // This launch-only switch supports bundle smoke tests without camera access.
@@ -52,42 +54,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu()
+        appMenu = menu
         menu.autoenablesItems = false
+        // Grouped by purpose: protection, tuning, verification, setup, then meta.
         stateItem.isEnabled = false
         menu.addItem(stateItem)
         toggleItem.target = self
         menu.addItem(toggleItem)
+        menu.addItem(.separator())
+
+        menu.addItem(controlItem(title: "Tolerance", value: attention.tolerance,
+                                 caption: "Stricter                           More forgiving",
+                                 action: #selector(changeTolerance(_:)),
+                                 accessibility: "Head position and look-away tolerance",
+                                 tooltip: "Higher tolerance allows more head movement and waits longer before covering."))
+        menu.addItem(controlItem(title: "Blur level", value: blurStrength,
+                                 caption: "Almost fully blurred        Almost readable",
+                                 action: #selector(changeBlurStrength(_:)),
+                                 accessibility: "Cover blur level",
+                                 tooltip: "Drag left to hide more of the cover; right keeps text more readable."))
+        let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
+        message.target = self
+        menu.addItem(message)
+        menu.addItem(.separator())
+
         let preview = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
         preview.target = self
         menu.addItem(preview)
         menu.addItem(.separator())
 
-        let control = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 86))
-        let title = NSTextField(labelWithString: "Tolerance")
-        title.frame = NSRect(x: 18, y: 60, width: 210, height: 18)
-        control.addSubview(title)
-        let slider = NSSlider(value: attention.tolerance, minValue: 0, maxValue: 1,
-                              target: self, action: #selector(changeTolerance(_:)))
-        slider.frame = NSRect(x: 16, y: 31, width: 218, height: 24)
-        slider.isContinuous = true
-        slider.setAccessibilityLabel("Head position and look-away tolerance")
-        slider.toolTip = "Higher tolerance allows more head movement and waits longer before covering."
-        control.addSubview(slider)
-        let caption = NSTextField(labelWithString: "Stricter                           More forgiving")
-        caption.font = .systemFont(ofSize: 11)
-        caption.textColor = .secondaryLabelColor
-        caption.frame = NSRect(x: 18, y: 10, width: 215, height: 16)
-        control.addSubview(caption)
-        let setting = NSMenuItem()
-        setting.view = control
-        menu.addItem(setting)
-        let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
-        message.target = self
-        menu.addItem(message)
         let screenAccess = NSMenuItem(title: "Screen Capture Permission…", action: #selector(screenCapturePermission), keyEquivalent: "")
         screenAccess.target = self
         menu.addItem(screenAccess)
         menu.addItem(.separator())
+
         let about = NSMenuItem(title: "About Screen Privacy…", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
@@ -110,6 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             enableWithPermission()
         }
+        // Keep the complete menu attached while protection changes the status title.
+        statusItem.menu = appMenu
     }
 
     @objc private func previewCover() {
@@ -246,6 +248,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defaults.set(attention.tolerance, forKey: "tolerance")
     }
 
+    /// Strength 0–1 maps to a Gaussian radius of 18→6 screen points; 0.5 is the historical 12.
+    private static let defaultBlurStrength = 0.5
+
+    private var blurStrength: Double {
+        let value = defaults.double(forKey: "blurStrength")
+        return defaults.object(forKey: "blurStrength") == nil
+            ? Self.defaultBlurStrength
+            : min(max(value.isFinite ? value : Self.defaultBlurStrength, 0), 1)
+    }
+
+    /// Shared layout for the embedded slider controls, matching the original Tolerance row.
+    private func controlItem(title: String, value: Double, caption: String,
+                             action: Selector, accessibility: String, tooltip: String) -> NSMenuItem {
+        let control = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 86))
+        let label = NSTextField(labelWithString: title)
+        label.frame = NSRect(x: 18, y: 60, width: 210, height: 18)
+        control.addSubview(label)
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 1,
+                              target: self, action: action)
+        slider.frame = NSRect(x: 16, y: 31, width: 218, height: 24)
+        slider.isContinuous = true
+        slider.setAccessibilityLabel(accessibility)
+        slider.toolTip = tooltip
+        control.addSubview(slider)
+        let captionField = NSTextField(labelWithString: caption)
+        captionField.font = .systemFont(ofSize: 11)
+        captionField.textColor = .secondaryLabelColor
+        captionField.frame = NSRect(x: 18, y: 10, width: 215, height: 16)
+        control.addSubview(captionField)
+        let item = NSMenuItem()
+        item.view = control
+        return item
+    }
+
+    @objc private func changeBlurStrength(_ sender: NSSlider) {
+        cover.blurStrength = sender.doubleValue
+        defaults.set(cover.blurStrength, forKey: "blurStrength")
+    }
+
     private func updateStatus(_ text: String) {
         protectionStatus = text
         let text = previewID == nil ? text : "Preview · 5 seconds"
@@ -300,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showIntroduction() {
         let alert = NSAlert()
         alert.messageText = "Privacy when you look away"
-        alert.informativeText = "Screen Privacy uses your camera to estimate head direction and covers your displays when you look away. Camera frames stay on this Mac and are never saved. The camera indicator stays on while protection is active.\n\nWith Screen Recording permission, the cover shows a locally blurred, frozen screenshot. New messages and window changes do not appear through it. Images stay in memory and are discarded when you return. Without permission, an opaque cover is used.\n\nUse the eye icon in the menu bar to pause or adjust tolerance. This does not identify you or replace locking your Mac."
+        alert.informativeText = "Screen Privacy uses your camera to estimate head direction and covers your displays when you look away. Camera frames stay on this Mac and are never saved. The camera indicator stays on while protection is active.\n\nWith Screen Recording permission, the cover shows a locally blurred, frozen screenshot. New messages and window changes do not appear through it. Images stay in memory and are discarded when you return. Without permission, an opaque cover is used.\n\nUse the eye icon in the menu bar to pause or adjust tolerance and blur level. This does not identify you or replace locking your Mac."
         alert.addButton(withTitle: "Enable protection")
         alert.addButton(withTitle: "Later")
         NSApp.activate(ignoringOtherApps: true)
@@ -319,7 +360,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quitApp() { NSApp.terminate(nil) }
 
     private func explainScreenCaptureIfNeeded() {
-        guard !CGPreflightScreenCaptureAccess(), !defaults.bool(forKey: "screenCaptureExplained") else { return }
+        // The permission can be revoked or invalidated when a newly signed local
+        // build is launched. Do not let the old explanation flag hide the reason
+        // the cover is opaque; show the recovery flow whenever capture is absent.
+        guard !CGPreflightScreenCaptureAccess() else { return }
         screenCapturePermission()
     }
 

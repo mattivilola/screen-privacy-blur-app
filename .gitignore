@@ -27,3 +27,5 @@ artifacts/
 xcuserdata/
 output/
 tmp/
+
+.freebuff/

@@ -10,6 +10,7 @@ final class PrivacyCover {
     private let snapshots = FrozenSnapshotCapture()
     private var captureTask: Task<Void, Never>?
     private var captureID = UUID()
+    private var blurReplacementPending = false
     private(set) var isVisible = false
     var captureAllowed = true {
         didSet {
@@ -21,6 +22,14 @@ final class PrivacyCover {
     var message = "" {
         didSet { brandingViews.forEach { $0.updateMessage(message) } }
     }
+    /// 0 hides details behind heavy blur; 1 keeps large shapes but lets short text stay legible.
+    var blurStrength = 0.5 {
+        didSet {
+            guard blurStrength != oldValue else { return }
+            scheduleBlurReplacement()
+        }
+    }
+    private var blurReplacement: Timer?
 
     func setVisible(_ visible: Bool) {
         guard visible != isVisible else { return }
@@ -82,9 +91,40 @@ final class PrivacyCover {
         guard isVisible, captureAllowed, captureTask == nil,
               imageViews.values.allSatisfy({ $0.image == nil }),
               CGPreflightScreenCaptureAccess() else { return }
+        startCapture()
+    }
+
+    /// Slider drags fire continuously; debounce so one settled re-capture replaces
+    /// the frozen images in place instead of flickering the cover to neutral.
+    private func scheduleBlurReplacement() {
+        blurReplacement?.invalidate()
+        guard isVisible, captureAllowed, CGPreflightScreenCaptureAccess() else { return }
+        let timer = Timer(timeInterval: 0.25, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.replaceSnapshots() }
+        }
+        blurReplacement = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func replaceSnapshots() {
+        blurReplacement = nil
+        guard isVisible, captureAllowed, CGPreflightScreenCaptureAccess() else { return }
+        // Never cancel into FrozenSnapshotCapture's single-request guard. Let the
+        // current capture finish, then replace it with the latest requested radius.
+        guard captureTask == nil else {
+            blurReplacementPending = true
+            return
+        }
+        startCapture()
+    }
+
+    private func startCapture() {
         let displays = NSScreen.screens.compactMap { screen -> SnapshotDisplay? in
-            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
-            return SnapshotDisplay(id: id.uint32Value, pointWidth: screen.frame.width, pointHeight: screen.frame.height)
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+                  let panel = panels.first(where: { $0.frame.equalTo(screen.frame) }) else { return nil }
+            return SnapshotDisplay(id: id.uint32Value, pointWidth: screen.frame.width, pointHeight: screen.frame.height,
+                                   screenRect: screen.frame, coverWindowID: CGWindowID(panel.windowNumber),
+                                   blurStrength: blurStrength)
         }
         let token = UUID()
         captureID = token
@@ -97,10 +137,17 @@ final class PrivacyCover {
                 view.image = NSImage(cgImage: image, size: view.bounds.size)
             }
             self.captureTask = nil
+            if self.blurReplacementPending {
+                self.blurReplacementPending = false
+                self.replaceSnapshots()
+            }
         }
     }
 
     private func discardSnapshot() {
+        blurReplacement?.invalidate()
+        blurReplacement = nil
+        blurReplacementPending = false
         captureID = UUID()
         captureTask?.cancel()
         captureTask = nil

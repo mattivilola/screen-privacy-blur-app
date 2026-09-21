@@ -41,7 +41,10 @@ final class PrivacyCover {
             panel.isReleasedWhenClosed = false
 
             let blur = NSVisualEffectView(frame: NSRect(origin: .zero, size: screen.frame.size))
-            blur.material = .underWindowBackground
+            // Under-window material heavily flattens colors on macOS and can
+            // resemble a solid gray cover. Full-screen material keeps the live
+            // desktop recognizable through the system-composited blur.
+            blur.material = .fullScreenUI
             blur.blendingMode = .behindWindow
             blur.state = .active
             let branding = CoverBrandingView(screenSize: screen.frame.size, message: message, icon: appIcon)

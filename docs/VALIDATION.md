@@ -13,7 +13,7 @@ Automated tests exercise the attention state machine, not real-world gaze accura
 - Sleep/wake displays and the Mac; lock/unlock and switch users. Check capture stops while suspended and resumes conservatively, without stale attention uncovering the display.
 - Test all connected monitors, hot-plug, arrangement/resolution changes, full-screen apps, Spaces, Stage Manager, Mission Control, auto-hidden menu bar, and Reduce Transparency. Confirm the menu bar pause command is reachable.
 - Confirm the cover does not steal focus; document any windows or system UI above it. Test screen sharing/recording separately; do not claim protection there based on local display checks.
-- Check that the cover blurs the desktop without an added black tint and centers the app icon/name on each display in light and dark appearances. With Reduce Transparency enabled, macOS may substitute a more opaque material.
+- Check that the cover keeps underlying window shapes and colors visible through the blur, without a flat gray fill or added black tint, and centers the app icon/name on each display in light and dark appearances. The cover uses the native fullscreen material; under-window material can wash out the desktop. With Reduce Transparency enabled, macOS may substitute a more opaque material.
 - Edit the custom message, save/cancel it, and relaunch. Test blank text, pasted long text, emoji, input-method composition, and very wide characters. Verify the live character count, three-line limit, and centered card bounds on small, large, and portrait displays. Saving while covered should update the message without briefly removing the cover.
 - Verify VoiceOver describes the menu item, status, and tolerance slider; operate the menu with the keyboard.
 

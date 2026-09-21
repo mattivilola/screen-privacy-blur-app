@@ -22,7 +22,7 @@ The app processes camera frames locally, makes no network requests, and does not
 - Attention regression tests and release-signing guard tests.
 - Local app builds, universal release builds, signing, notarization, ZIP/DMG packaging, and CI workflows.
 - MIT license, contribution guidance, and privacy limitations.
-- Temporary app icon and reproducible icon packaging.
+- Dedicated app icon and brand logo, with reproducible icon packaging.
 
 ## Before a stable binary release
 
@@ -32,6 +32,5 @@ The app processes camera frames locally, makes no network requests, and does not
 - Perform the snapshot-specific [manual checks](docs/VALIDATION.md): delayed or cancelled completion, permission revocation and relaunch, protected/DRM content, static covered content, all display arrangements, and no stale image after lifecycle changes.
 - Measure cover creation latency, memory, CPU, and energy on real hardware before making performance claims.
 - Validate Developer ID signing, notarization, stapling, and a quarantined download on another Mac.
-- Replace the temporary icon with dedicated project artwork.
 
 Keep the product simple: no cloud processing, accounts, telemetry, updater, or additional preferences without a demonstrated need.

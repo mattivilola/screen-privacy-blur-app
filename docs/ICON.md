@@ -1,6 +1,6 @@
 # App icon
 
-The project currently uses a temporary ILO apps icon supplied by the maintainer. Its source is `Assets/AppIcon.png`; the macOS bundle icon is `Packaging/AppIcon.icns`. Dedicated project artwork is planned.
+The project uses dedicated project artwork created for Screen Privacy. Its source is `Assets/AppIcon.png`; the brand logo is `Assets/Logo.png`; the macOS bundle icon is `Packaging/AppIcon.icns`.
 
 Local and release builds include the bundled icon automatically. The menu bar uses an adaptive monochrome SF Symbol so its appearance follows system settings.
 

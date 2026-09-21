@@ -2,7 +2,13 @@
 
 [![CI](https://github.com/mattivilola/screen-privacy-blur-app/actions/workflows/ci.yml/badge.svg)](https://github.com/mattivilola/screen-privacy-blur-app/actions/workflows/ci.yml)
 
-<img src="Assets/AppIcon.png" width="128" alt="Temporary ILO apps icon">
+<p align="center">
+  <img src="Assets/Logo.png" width="560" alt="Screen Privacy by ILO apps">
+</p>
+
+<p align="center">
+  <img src="Assets/AppIcon.png" width="128" alt="Screen Privacy App Icon">
+</p>
 
 A small native macOS menu bar app that covers your displays when you look away and uncovers them when you face the camera again. When macOS allows screen capture, each cover uses one frozen, blurred snapshot of that display; it is not a live screen-blur feed.
 

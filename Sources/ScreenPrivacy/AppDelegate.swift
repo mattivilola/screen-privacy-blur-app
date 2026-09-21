@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var suspended: Bool { sleeping || sessionInactive || screenLocked || screensSleeping }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let icon = appIcon {
+            NSApp.applicationIconImage = icon
+        }
         attention.tolerance = defaults.object(forKey: "tolerance") as? Double ?? 0.5
         cover.message = defaults.string(forKey: "coverMessage") ?? ""
         cover.blurStrength = blurStrength
@@ -338,12 +341,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var appIcon: NSImage? {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
+            return NSImage(contentsOf: url)
+        }
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        if let image = NSImage(named: "AppIcon") {
+            return image
+        }
+        let localPath = "Assets/AppIcon.png"
+        if FileManager.default.fileExists(atPath: localPath) {
+            return NSImage(contentsOfFile: localPath)
+        }
+        return nil
+    }
+
+    private var brandLogo: NSImage? {
+        if let url = Bundle.main.url(forResource: "Logo", withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        let localPath = "Assets/Logo.png"
+        if FileManager.default.fileExists(atPath: localPath) {
+            return NSImage(contentsOfFile: localPath)
+        }
+        return nil
+    }
+
     private func showIntroduction() {
         let alert = NSAlert()
         alert.messageText = "Privacy when you look away"
+        if let icon = appIcon {
+            alert.icon = icon
+        }
+        if let logo = brandLogo {
+            let logoView = NSImageView(frame: NSRect(x: 0, y: 0, width: 340, height: 191))
+            logoView.image = logo
+            logoView.imageScaling = .scaleProportionallyUpOrDown
+            logoView.wantsLayer = true
+            logoView.layer?.cornerRadius = 8
+            logoView.layer?.masksToBounds = true
+            alert.accessoryView = logoView
+        }
         alert.informativeText = "Screen Privacy uses your camera to estimate head direction and covers your displays when you look away. Camera frames stay on this Mac and are never saved. The camera indicator stays on while protection is active.\n\nWith Screen Recording permission, the cover shows a locally blurred, frozen screenshot. New messages and window changes do not appear through it. Images stay in memory and are discarded when you return. Without permission, an opaque cover is used.\n\nUse the eye icon in the menu bar to pause or adjust tolerance and blur level. This does not identify you or replace locking your Mac."
         alert.addButton(withTitle: "Enable protection")
         alert.addButton(withTitle: "Later")
+        alert.window.level = .statusBar
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { enableWithPermission() }
     }
@@ -351,8 +395,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "Screen Privacy"
+        if let icon = appIcon {
+            alert.icon = icon
+        }
+        if let logo = brandLogo {
+            let logoView = NSImageView(frame: NSRect(x: 0, y: 0, width: 340, height: 191))
+            logoView.image = logo
+            logoView.imageScaling = .scaleProportionallyUpOrDown
+            logoView.wantsLayer = true
+            logoView.layer?.cornerRadius = 8
+            logoView.layer?.masksToBounds = true
+            alert.accessoryView = logoView
+        }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         alert.informativeText = "Version \(version) · Open source under the MIT License\n\nThis app was made with ❤️ by Matti Vilola (iloapps.com)\n\nLocal head-direction detection. Higher tolerance allows more movement and waits longer before covering.\n\nWhy a frozen cover? A blurred screenshot hides later messages and window changes instead of showing a live view. It needs Screen Recording permission, but takes only a still image per display when covering. Images stay in memory and are discarded on return; no saved recordings, network requests, or accounts. Without permission, the cover is opaque.\n\nAny single person facing the camera can uncover the screen. The frozen image may remain recognizable, and system UI can appear above it. Lock your Mac for security."
+        alert.window.level = .statusBar
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }

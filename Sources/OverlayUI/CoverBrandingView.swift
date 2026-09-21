@@ -100,6 +100,8 @@ public final class CoverBrandingView: NSVisualEffectView {
 
         iconView.image = icon
         iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.wantsLayer = true
+        iconView.layer?.masksToBounds = true
         iconView.setAccessibilityElement(false)
         addSubview(iconView)
 
@@ -129,6 +131,7 @@ public final class CoverBrandingView: NSVisualEffectView {
         frame = layout.frame
         layer?.cornerRadius = min(22, min(frame.width, frame.height) * 0.1)
         iconView.frame = layout.iconFrame
+        iconView.layer?.cornerRadius = min(18, layout.iconFrame.width * 0.22)
         messageView.frame = layout.textFrame
         messageView.textStorage?.setAttributedString(
             NSAttributedString(string: message, attributes: CoverLayout.attributes(font: layout.font))

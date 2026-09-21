@@ -159,6 +159,16 @@ final class PrivacyCover {
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
             return NSImage(contentsOf: url)
         }
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        if let image = NSImage(named: "AppIcon") {
+            return image
+        }
+        let localPath = "Assets/AppIcon.png"
+        if FileManager.default.fileExists(atPath: localPath) {
+            return NSImage(contentsOfFile: localPath)
+        }
         return NSImage(systemSymbolName: "eye.slash.fill", accessibilityDescription: nil)
     }
 }

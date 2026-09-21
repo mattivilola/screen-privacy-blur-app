@@ -39,4 +39,11 @@ bundle_app() {
     cp "$REPO_ROOT/Packaging/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
     /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string AppIcon' "$app_path/Contents/Info.plist"
   fi
+  if [[ -f "$REPO_ROOT/Assets/Logo.png" ]]; then
+    cp "$REPO_ROOT/Assets/Logo.png" "$app_path/Contents/Resources/Logo.png"
+  fi
+  if [[ -f "$REPO_ROOT/Assets/AppIcon.png" ]]; then
+    cp "$REPO_ROOT/Assets/AppIcon.png" "$app_path/Contents/Resources/AppIcon.png"
+  fi
 }
+

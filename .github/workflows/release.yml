@@ -1,0 +1,21 @@
+name: Manual release artifact
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-artifact:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+      - run: ./scripts/test-release-tools.sh
+      - run: ./scripts/build-release-app.sh --unsigned --output-dir artifacts/release-ci
+      - run: ditto -c -k --sequesterRsrc --keepParent 'artifacts/release-ci/Screen Privacy.app' artifacts/release-ci/ScreenPrivacy-ci.zip
+      - run: shasum -a 256 artifacts/release-ci/ScreenPrivacy-ci.zip > artifacts/release-ci/ScreenPrivacy-ci.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenPrivacy-release-candidate-unsigned
+          path: artifacts/release-ci/ScreenPrivacy-ci.zip*

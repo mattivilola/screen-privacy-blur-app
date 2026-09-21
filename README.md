@@ -34,7 +34,15 @@ git clone https://github.com/mattivilola/screen-privacy-blur-app.git
 cd screen-privacy-blur-app
 ```
 
-Build and test:
+Build and launch locally:
+
+```sh
+make run
+```
+
+This builds an ad-hoc signed app and opens it in the menu bar. Quit an already running copy before launching an updated build.
+
+Build and test separately:
 
 ```sh
 swift test

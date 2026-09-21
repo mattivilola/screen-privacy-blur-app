@@ -15,7 +15,11 @@ A small native macOS menu bar app that covers your displays when you look away a
 3. Face the camera. The screen uncovers after steady attention is detected.
 4. Use the eye icon in the menu bar to pause protection or quit.
 
-The only preference is **Tolerance**. Moving it right allows more head movement and a longer look-away delay. It persists between launches. Protection also resumes on subsequent launches if it was enabled and camera permission remains available.
+**Tolerance** controls how much head movement is allowed and how long the app waits before covering. Moving it right makes detection more forgiving.
+
+Choose **Custom message…** to set the text beneath the logo. It is limited to 120 characters and displayed in at most three lines, with automatic font sizing. The centered overlay stays within one third of each screen's width and height; unusually wide text is truncated if needed to keep it readable. Leave the message blank to show “Screen Privacy”.
+
+Both preferences are stored locally and persist between launches. Protection also resumes on subsequent launches if it was enabled and camera permission remains available.
 
 Keep your camera close to your screen's center. This app estimates head direction relative to the camera, not your eye gaze or which monitor you are reading. Looking only with your eyes may not trigger the cover. There is no camera picker or calibration flow.
 
@@ -46,7 +50,7 @@ See [release instructions](docs/RELEASING.md) for universal builds, signing, not
 - Camera permission is required. The camera indicator remains visible while capture is active. Microphone, screen recording, and Accessibility permissions are not requested.
 - This is **not authentication or a screen lock**. Any single person facing the camera can uncover the screen. Face detection can miss bystanders, fail in low light, or be fooled by an image.
 - Multiple detected faces, invalid pose information, and camera errors cannot uncover a covered screen. Brief attention loss is debounced; lack of fresh camera frames triggers a cover after about 1.5 seconds.
-- The overlay uses macOS background blur with the app icon and name centered on each display. Its appearance follows the system theme and accessibility settings. Blur can leave content recognizable. Menu bar and higher-level system UI may remain visible. Full-screen apps, Spaces, Mission Control, and display changes require verification on your setup.
+- The overlay uses macOS background blur with the app icon and your message in a centered, rounded panel on each display. Its appearance follows the system theme and accessibility settings. Blur can leave content recognizable. Menu bar and higher-level system UI may remain visible. Full-screen apps, Spaces, Mission Control, and display changes require verification on your setup.
 - The overlay is mouse-transparent: applications keep running and keyboard/mouse input still reaches them. Pause from the menu bar before interacting with a covered display. It is not a guarantee of concealment in screenshots or screen sharing.
 - Capture stops on workspace sleep/inactivity and screen sleep. Supplemental macOS lock/unlock notifications are used as a best-effort optimization, not as a security boundary.
 
@@ -61,6 +65,7 @@ The detection pipeline deliberately uses face rectangles with head angles instea
 ## Development
 
 - `Sources/AttentionCore`: deterministic attention policy and timing.
+- `Sources/OverlayUI`: message editing and responsive overlay layout.
 - `Sources/ScreenPrivacy`: menu bar app, camera pipeline, display covers.
 - `Tests/AttentionCoreTests`: regression tests without camera access.
 - [PLAN.md](PLAN.md): implementation scope and progress.

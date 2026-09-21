@@ -2,7 +2,7 @@
 
 ## Scope
 
-A small, dependency-free macOS menu bar app that estimates head direction using the camera, covers displays when attention is away, and uncovers them after steady attention returns. One tolerance control adjusts head-angle thresholds and the look-away delay.
+A small, dependency-free macOS menu bar app that estimates head direction using the camera, covers displays when attention is away, and uncovers them after steady attention returns. A tolerance control adjusts head-angle thresholds and the look-away delay; an optional custom message personalizes the cover.
 
 The app processes frames locally, never records them, and makes no network requests. It is a convenience privacy layer, not authentication or a replacement for the macOS lock screen.
 
@@ -13,6 +13,7 @@ The app processes frames locally, never records them, and makes no network reque
 - Attention hysteresis, debounce, conservative recovery, and missing-frame protection.
 - Menu bar controls, camera permission onboarding, display covers, and lifecycle handling.
 - Persistent tolerance setting.
+- Locally saved custom message with a 120-character limit, three-line maximum, and a centered overlay bounded by one third of each display.
 - Attention regression tests and release-signing guard tests.
 - Local app builds, universal release builds, signing, notarization, ZIP/DMG packaging, and CI workflows.
 - MIT license, contribution guidance, and privacy limitations.

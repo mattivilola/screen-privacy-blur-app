@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import AttentionCore
+import OverlayUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         attention.tolerance = defaults.object(forKey: "tolerance") as? Double ?? 0.5
+        cover.message = defaults.string(forKey: "coverMessage") ?? ""
         buildMenu()
         observeLifecycle()
         // This launch-only switch supports bundle smoke tests without camera access.
@@ -72,6 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let setting = NSMenuItem()
         setting.view = control
         menu.addItem(setting)
+        let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
+        message.target = self
+        menu.addItem(message)
         menu.addItem(.separator())
         let about = NSMenuItem(title: "About Screen Privacy…", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
@@ -94,6 +99,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             enableWithPermission()
         }
+    }
+
+    @objc private func editMessage() {
+        let editor = MessageEditor()
+        guard let message = editor.run(currentMessage: cover.message) else { return }
+        defaults.set(message, forKey: "coverMessage")
+        cover.message = message
     }
 
     private func enableWithPermission() {

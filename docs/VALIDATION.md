@@ -13,6 +13,7 @@ Automated tests exercise the attention state machine, not real-world gaze accura
 - Test all connected monitors, hot-plug, arrangement/resolution changes, full-screen apps, Spaces, Stage Manager, Mission Control, auto-hidden menu bar, and Reduce Transparency. Confirm the menu bar pause command is reachable.
 - Confirm the cover does not steal focus; document any windows or system UI above it. Test screen sharing/recording separately; do not claim protection there based on local display checks.
 - Check that the cover blurs the desktop without an added black tint and centers the app icon/name on each display in light and dark appearances. With Reduce Transparency enabled, macOS may substitute a more opaque material.
+- Edit the custom message, save/cancel it, and relaunch. Test blank text, pasted long text, emoji, input-method composition, and very wide characters. Verify the live character count, three-line limit, and centered card bounds on small, large, and portrait displays. Saving while covered should update the message without briefly removing the cover.
 - Verify VoiceOver describes the menu item, status, and tolerance slider; operate the menu with the keyboard.
 
 ## Energy and responsiveness
@@ -27,6 +28,6 @@ Validate both architectures with `lipo`, inspect the bundle's plist/entitlements
 
 ## Current verification
 
-Ten attention regression tests, release-signing guard tests, native debug compilation, a universal arm64/x86_64 release build, and a camera-free launch smoke test have passed locally. Local ad-hoc app signatures have been verified.
+Ten attention regression tests, message normalization tests, responsive typography/layout tests, release-signing guard tests, native debug compilation, a universal arm64/x86_64 release build, and a camera-free launch smoke test have passed locally. Local ad-hoc app signatures have been verified.
 
 Live camera checks, energy profiling, and credentialed distribution verification remain manual until recorded here with actual evidence. A successful CI run verifies source builds and tests; it does not establish real-world privacy or performance guarantees.

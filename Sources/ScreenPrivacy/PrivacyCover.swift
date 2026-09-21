@@ -1,9 +1,16 @@
 import AppKit
+import OverlayUI
 
 @MainActor
 final class PrivacyCover {
     private var panels: [NSPanel] = []
+    private var brandingViews: [CoverBrandingView] = []
     private(set) var isVisible = false
+    var message = "" {
+        didSet {
+            brandingViews.forEach { $0.updateMessage(message) }
+        }
+    }
 
     func setVisible(_ visible: Bool) {
         guard visible != isVisible else { return }
@@ -19,6 +26,7 @@ final class PrivacyCover {
     func rebuild() {
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll()
+        brandingViews.removeAll()
         guard isVisible else { return }
         for screen in NSScreen.screens {
             let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
@@ -36,7 +44,9 @@ final class PrivacyCover {
             blur.material = .underWindowBackground
             blur.blendingMode = .behindWindow
             blur.state = .active
-            addBranding(to: blur)
+            let branding = CoverBrandingView(screenSize: screen.frame.size, message: message, icon: appIcon)
+            blur.addSubview(branding)
+            brandingViews.append(branding)
             panel.contentView = blur
             panel.setFrame(screen.frame, display: true)
             panel.orderFrontRegardless()
@@ -44,34 +54,10 @@ final class PrivacyCover {
         }
     }
 
-    private func addBranding(to blur: NSVisualEffectView) {
-        let icon = NSImageView()
+    private var appIcon: NSImage? {
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
-            icon.image = NSImage(contentsOf: url)
-        } else {
-            icon.image = NSImage(systemSymbolName: "eye.slash.fill", accessibilityDescription: nil)
+            return NSImage(contentsOf: url)
         }
-        icon.imageScaling = .scaleProportionallyUpOrDown
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.setAccessibilityElement(false)
-
-        let title = NSTextField(labelWithString: "Screen Privacy")
-        title.font = .systemFont(ofSize: 24, weight: .semibold)
-        title.textColor = .labelColor
-        title.alignment = .center
-
-        let branding = NSStackView(views: [icon, title])
-        branding.orientation = .vertical
-        branding.alignment = .centerX
-        branding.spacing = 14
-        branding.translatesAutoresizingMaskIntoConstraints = false
-        blur.addSubview(branding)
-
-        NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: 96),
-            icon.heightAnchor.constraint(equalToConstant: 96),
-            branding.centerXAnchor.constraint(equalTo: blur.centerXAnchor),
-            branding.centerYAnchor.constraint(equalTo: blur.centerYAnchor)
-        ])
+        return NSImage(systemSymbolName: "eye.slash.fill", accessibilityDescription: nil)
     }
 }

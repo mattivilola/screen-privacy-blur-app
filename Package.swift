@@ -7,7 +7,9 @@ let package = Package(
     products: [.executable(name: "ScreenPrivacy", targets: ["ScreenPrivacy"])],
     targets: [
         .target(name: "AttentionCore"),
-        .executableTarget(name: "ScreenPrivacy", dependencies: ["AttentionCore"]),
-        .testTarget(name: "AttentionCoreTests", dependencies: ["AttentionCore"])
+        .target(name: "OverlayUI"),
+        .executableTarget(name: "ScreenPrivacy", dependencies: ["AttentionCore", "OverlayUI"]),
+        .testTarget(name: "AttentionCoreTests", dependencies: ["AttentionCore"]),
+        .testTarget(name: "OverlayUITests", dependencies: ["OverlayUI"])
     ]
 )

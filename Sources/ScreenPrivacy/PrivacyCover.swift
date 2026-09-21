@@ -33,19 +33,45 @@ final class PrivacyCover {
             panel.isReleasedWhenClosed = false
 
             let blur = NSVisualEffectView(frame: NSRect(origin: .zero, size: screen.frame.size))
-            blur.material = .hudWindow
+            blur.material = .underWindowBackground
             blur.blendingMode = .behindWindow
             blur.state = .active
-            blur.appearance = NSAppearance(named: .darkAqua)
-            let tint = NSView(frame: blur.bounds)
-            tint.autoresizingMask = [.width, .height]
-            tint.wantsLayer = true
-            tint.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.90).cgColor
-            blur.addSubview(tint)
+            addBranding(to: blur)
             panel.contentView = blur
             panel.setFrame(screen.frame, display: true)
             panel.orderFrontRegardless()
             panels.append(panel)
         }
+    }
+
+    private func addBranding(to blur: NSVisualEffectView) {
+        let icon = NSImageView()
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
+            icon.image = NSImage(contentsOf: url)
+        } else {
+            icon.image = NSImage(systemSymbolName: "eye.slash.fill", accessibilityDescription: nil)
+        }
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.setAccessibilityElement(false)
+
+        let title = NSTextField(labelWithString: "Screen Privacy")
+        title.font = .systemFont(ofSize: 24, weight: .semibold)
+        title.textColor = .labelColor
+        title.alignment = .center
+
+        let branding = NSStackView(views: [icon, title])
+        branding.orientation = .vertical
+        branding.alignment = .centerX
+        branding.spacing = 14
+        branding.translatesAutoresizingMaskIntoConstraints = false
+        blur.addSubview(branding)
+
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 96),
+            icon.heightAnchor.constraint(equalToConstant: 96),
+            branding.centerXAnchor.constraint(equalTo: blur.centerXAnchor),
+            branding.centerYAnchor.constraint(equalTo: blur.centerYAnchor)
+        ])
     }
 }

@@ -46,7 +46,7 @@ See [release instructions](docs/RELEASING.md) for universal builds, signing, not
 - Camera permission is required. The camera indicator remains visible while capture is active. Microphone, screen recording, and Accessibility permissions are not requested.
 - This is **not authentication or a screen lock**. Any single person facing the camera can uncover the screen. Face detection can miss bystanders, fail in low light, or be fooled by an image.
 - Multiple detected faces, invalid pose information, and camera errors cannot uncover a covered screen. Brief attention loss is debounced; lack of fresh camera frames triggers a cover after about 1.5 seconds.
-- The overlay uses macOS background blur plus a strong dark tint. Blur can leave content recognizable. Menu bar and higher-level system UI may remain visible. Full-screen apps, Spaces, Mission Control, and display changes require verification on your setup.
+- The overlay uses macOS background blur with the app icon and name centered on each display. Its appearance follows the system theme and accessibility settings. Blur can leave content recognizable. Menu bar and higher-level system UI may remain visible. Full-screen apps, Spaces, Mission Control, and display changes require verification on your setup.
 - The overlay is mouse-transparent: applications keep running and keyboard/mouse input still reaches them. Pause from the menu bar before interacting with a covered display. It is not a guarantee of concealment in screenshots or screen sharing.
 - Capture stops on workspace sleep/inactivity and screen sleep. Supplemental macOS lock/unlock notifications are used as a best-effort optimization, not as a security boundary.
 

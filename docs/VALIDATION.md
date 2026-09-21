@@ -12,6 +12,7 @@ Automated tests exercise the attention state machine, not real-world gaze accura
 - Sleep/wake displays and the Mac; lock/unlock and switch users. Check capture stops while suspended and resumes conservatively, without stale attention uncovering the display.
 - Test all connected monitors, hot-plug, arrangement/resolution changes, full-screen apps, Spaces, Stage Manager, Mission Control, auto-hidden menu bar, and Reduce Transparency. Confirm the menu bar pause command is reachable.
 - Confirm the cover does not steal focus; document any windows or system UI above it. Test screen sharing/recording separately; do not claim protection there based on local display checks.
+- Check that the cover blurs the desktop without an added black tint and centers the app icon/name on each display in light and dark appearances. With Reduce Transparency enabled, macOS may substitute a more opaque material.
 - Verify VoiceOver describes the menu item, status, and tolerance slider; operate the menu with the keyboard.
 
 ## Energy and responsiveness

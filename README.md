@@ -15,6 +15,8 @@ A small native macOS menu bar app that covers your displays when you look away a
 3. Face the camera. The screen uncovers after steady attention is detected.
 4. Use the eye icon in the menu bar to pause protection or quit.
 
+Choose **Preview for 5 seconds** to see the blur, logo, and message without looking away. It also works while protection is paused, without starting the camera or asking for permission. Selecting it again restarts the five-second preview. Afterward, the app returns to normal protection behavior; an active cover stays on if attention detection still requires it.
+
 **Tolerance** controls how much head movement is allowed and how long the app waits before covering. Moving it right makes detection more forgiving.
 
 Choose **Custom message…** to set the text beneath the logo. It is limited to 120 characters and displayed in at most three lines, with automatic font sizing. The centered overlay stays within one third of each screen's width and height; unusually wide text is truncated if needed to keep it readable. Leave the message blank to show “Screen Privacy”.

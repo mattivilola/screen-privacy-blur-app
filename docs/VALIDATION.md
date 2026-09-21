@@ -8,6 +8,7 @@ Automated tests exercise the attention state machine, not real-world gaze accura
 - Turn left/right, look down, leave the chair, and return. Test both tolerance extremes, ordinary blinks, glasses, dim light, camera above/below the display, and reading another monitor. Record false cover/uncover events.
 - Test no face, more than one face, and another person replacing the original user. The last case can uncover by design: identity is not verified.
 - Pause while covered: cover disappears and camera stops. Quit restores normal display. Relaunch with protection enabled and paused.
+- Preview for five seconds while paused and confirm the camera stays off and the cover disappears afterward. While protection is active, verify looking toward the camera does not end the preview early, expiration restores the current attention state, and looking away still keeps the cover on. Repeat preview to restart its timer; pause or sleep to cancel it.
 - Unplug/reconnect an external camera; compete for the camera with a call app; test runtime errors and revoked permission. Stale input must not leave the display uncovered indefinitely. Pause then enable to retry failed capture.
 - Sleep/wake displays and the Mac; lock/unlock and switch users. Check capture stops while suspended and resumes conservatively, without stale attention uncovering the display.
 - Test all connected monitors, hot-plug, arrangement/resolution changes, full-screen apps, Spaces, Stage Manager, Mission Control, auto-hidden menu bar, and Reduce Transparency. Confirm the menu bar pause command is reachable.

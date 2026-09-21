@@ -21,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var generation = UUID()
     private var lastFrame: TimeInterval?
     private var watchdog: Timer?
+    private var previewTimer: Timer?
+    private var previewID: UUID?
+    private var protectionCoverVisible = false
+    private var protectionStatus = "Paused"
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
     private var suspended: Bool { sleeping || sessionInactive || screenLocked || screensSleeping }
@@ -53,6 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(stateItem)
         toggleItem.target = self
         menu.addItem(toggleItem)
+        let preview = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
+        preview.target = self
+        menu.addItem(preview)
         menu.addItem(.separator())
 
         let control = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 86))
@@ -90,15 +97,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggle() {
         guard !permissionPending else { return }
+        endPreview()
         if enabled {
             enabled = false
             defaults.set(false, forKey: "enabled")
             stopCapture()
-            cover.setVisible(false)
+            setCoverVisible(false)
             updateStatus("Paused")
         } else {
             enableWithPermission()
         }
+    }
+
+    @objc private func previewCover() {
+        guard !suspended else { return }
+        previewTimer?.invalidate()
+        let token = UUID()
+        previewID = token
+        cover.setVisible(true)
+        updateStatus(protectionStatus)
+        let timer = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.previewID == token else { return }
+                self.endPreview()
+            }
+        }
+        previewTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func endPreview() {
+        guard previewID != nil else { return }
+        previewTimer?.invalidate()
+        previewTimer = nil
+        previewID = nil
+        cover.setVisible(protectionCoverVisible)
+        updateStatus(protectionStatus)
+    }
+
+    private func setCoverVisible(_ visible: Bool) {
+        protectionCoverVisible = visible
+        cover.setVisible(visible || previewID != nil)
     }
 
     @objc private func editMessage() {
@@ -145,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard enabled else { return }
         stopCapture()
         _ = attention.unavailable()
-        cover.setVisible(true)
+        setCoverVisible(true)
         guard !suspended else {
             updateStatus("Protection suspended")
             return
@@ -177,15 +216,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch event {
         case let .faces(faces, time):
             guard ProcessInfo.processInfo.systemUptime - time < 1 else {
-                cover.setVisible(attention.unavailable())
+                setCoverVisible(attention.unavailable())
                 updateStatus("Covered · waiting for fresh frames")
                 return
             }
             lastFrame = time
-            cover.setVisible(attention.update(faces: faces, at: time))
-            updateStatus(cover.isVisible ? "Covered · look toward the camera" : "Protection active")
+            setCoverVisible(attention.update(faces: faces, at: time))
+            updateStatus(protectionCoverVisible ? "Covered · look toward the camera" : "Protection active")
         case let .unavailable(reason):
-            cover.setVisible(attention.unavailable())
+            setCoverVisible(attention.unavailable())
             updateStatus("Covered · \(reason)")
         }
     }
@@ -193,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func checkFreshness() {
         guard enabled, !suspended, let lastFrame,
               ProcessInfo.processInfo.systemUptime - lastFrame > 1.5 else { return }
-        cover.setVisible(attention.unavailable())
+        setCoverVisible(attention.unavailable())
         updateStatus("Covered · camera unavailable; pause to retry")
     }
 
@@ -203,6 +242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatus(_ text: String) {
+        protectionStatus = text
+        let text = previewID == nil ? text : "Preview · 5 seconds"
         guard stateItem.title != text || statusItem.button?.image == nil else { return }
         stateItem.title = text
         toggleItem.title = enabled ? "Pause protection" : "Enable protection"
@@ -223,6 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func lifecycleChanged() {
+        if suspended { endPreview() }
         if enabled { resume() }
     }
 
@@ -243,7 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observe(AVCaptureDevice.wasConnectedNotification, center: .default) { $0.lifecycleChanged() }
         observe(AVCaptureSession.runtimeErrorNotification, center: .default) { app in
             guard app.enabled, !app.suspended else { return }
-            app.cover.setVisible(app.attention.unavailable())
+            app.setCoverVisible(app.attention.unavailable())
             app.updateStatus("Covered · camera error; pause to retry")
         }
     }
@@ -270,8 +312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quitApp() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        endPreview()
         stopCapture()
-        cover.setVisible(false)
+        setCoverVisible(false)
         for (center, observer) in observers { center.removeObserver(observer) }
     }
 }

@@ -4,7 +4,7 @@ APP_VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionSt
 APP_BUILD := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Packaging/Info.plist)
 RELEASE_DIR ?= artifacts/release/v$(APP_VERSION)-build$(APP_BUILD)-$(shell date -u +%Y%m%dT%H%M%SZ)
 SCREEN_PRIVACY_SIGNING_IDENTITY ?= Developer ID Application: Matti Vilola (MM233FKU38)
-SCREEN_PRIVACY_NOTARY_PROFILE ?= ScreenPrivacyNotary
+SCREEN_PRIVACY_NOTARY_PROFILE ?= NomadDashboardNotary
 SPARKLE_KEY_ACCOUNT ?= screen-privacy
 APPLE_TEAM_ID ?= MM233FKU38
 export SCREEN_PRIVACY_SIGNING_IDENTITY SCREEN_PRIVACY_NOTARY_PROFILE SPARKLE_KEY_ACCOUNT

@@ -16,11 +16,11 @@ Use a release Mac with Xcode command-line tools, a valid **Developer ID Applicat
 make setup-notary APPLE_ID=you@example.com
 ```
 
-The default certificate name, team ID, notary profile name, and Sparkle key account are in the Makefile. Override them when using your own fork or release Mac:
+The default certificate name, team ID, notary profile name, and Sparkle key account are in the Makefile. The existing `NomadDashboardNotary` profile belongs to the same Apple Developer team and can notarize this app too. Override these settings when using your own fork or release Mac:
 
 ```sh
 export SCREEN_PRIVACY_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)'
-export SCREEN_PRIVACY_NOTARY_PROFILE=ScreenPrivacyNotary
+export SCREEN_PRIVACY_NOTARY_PROFILE=YourNotaryProfile
 export SPARKLE_KEY_ACCOUNT=screen-privacy
 ```
 

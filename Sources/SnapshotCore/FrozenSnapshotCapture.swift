@@ -1,7 +1,7 @@
 import CoreGraphics
 import CoreImage
 import Foundation
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 public struct SnapshotDisplay: Sendable {
     public let id: CGDirectDisplayID

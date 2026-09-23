@@ -16,7 +16,7 @@ jobs:
       - run: ./scripts/test-release-tools.sh
       - run: ./scripts/build-release-app.sh --unsigned --output-dir artifacts/ci
       - run: plutil -lint 'artifacts/ci/Screen Privacy.app/Contents/Info.plist'
-      - run: lipo 'artifacts/ci/Screen Privacy.app/Contents/MacOS/ScreenPrivacy' -verify_arch arm64 x86_64
+      - run: test "$(lipo -archs 'artifacts/ci/Screen Privacy.app/Contents/MacOS/ScreenPrivacy')" = 'x86_64 arm64' || test "$(lipo -archs 'artifacts/ci/Screen Privacy.app/Contents/MacOS/ScreenPrivacy')" = 'arm64 x86_64'
       - run: test -x 'artifacts/ci/Screen Privacy.app/Contents/MacOS/ScreenPrivacy'
       - run: ditto -c -k --sequesterRsrc --keepParent 'artifacts/ci/Screen Privacy.app' artifacts/ci/ScreenPrivacy-ci.zip
       - run: shasum -a 256 artifacts/ci/ScreenPrivacy-ci.zip > artifacts/ci/ScreenPrivacy-ci.zip.sha256

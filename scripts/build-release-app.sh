@@ -21,6 +21,7 @@ if [[ "$unsigned" != true ]]; then
   : "${SCREEN_PRIVACY_SIGNING_IDENTITY:?Set SCREEN_PRIVACY_SIGNING_IDENTITY to a Developer ID Application identity.}"
   require_command security
   assert_developer_id_identity_available "$SCREEN_PRIVACY_SIGNING_IDENTITY"
+  [[ -z "$(git status --porcelain)" ]] || fail "Build signed releases only from a clean source commit."
 fi
 require_new_path "$output_dir"
 mkdir -p "$output_dir"
@@ -29,14 +30,18 @@ swiftpm_args=()
 swift build "${swiftpm_args[@]}" --configuration release --product "$EXECUTABLE" --arch arm64 --arch x86_64
 binary="$(swift build "${swiftpm_args[@]}" --show-bin-path --configuration release --arch arm64 --arch x86_64)/$EXECUTABLE"
 [[ -x "$binary" ]] || fail "SwiftPM did not produce $binary"
-lipo "$binary" -verify_arch arm64 x86_64
+for architecture in arm64 x86_64; do
+  lipo -archs "$binary" | tr ' ' '\n' | grep -Fqx "$architecture" || fail "Release executable lacks $architecture"
+done
 app_path="$output_dir/$APP_NAME"
 bundle_app "$binary" "$app_path"
 if [[ "$unsigned" == true ]]; then
   print "Created unsigned universal app for CI: $app_path"
 else
+  sign_sparkle_components "$app_path" "$SCREEN_PRIVACY_SIGNING_IDENTITY"
   codesign --force --sign "$SCREEN_PRIVACY_SIGNING_IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "$app_path"
   assert_release_signed_app "$app_path" "$SCREEN_PRIVACY_SIGNING_IDENTITY"
   codesign -d --entitlements :- "$app_path" 2>&1 | grep -Fq 'com.apple.security.device.camera' || fail "Camera entitlement is missing after signing."
+  git rev-parse HEAD > "$output_dir/source-commit.txt"
 fi
 print "Release app: $app_path"

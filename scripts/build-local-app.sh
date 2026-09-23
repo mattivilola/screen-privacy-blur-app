@@ -16,6 +16,7 @@ binary="$(swift build "${swiftpm_args[@]}" --show-bin-path --configuration debug
 [[ -x "$binary" ]] || fail "SwiftPM did not produce $binary"
 app_path="$output_dir/$APP_NAME"
 bundle_app "$binary" "$app_path"
+sign_sparkle_components "$app_path" '-'
 codesign --force --sign - "$app_path"
 codesign --verify --deep --strict --verbose=2 "$app_path"
 print "Local ad-hoc signed app: $app_path"

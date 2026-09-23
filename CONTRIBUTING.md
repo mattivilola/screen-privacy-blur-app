@@ -6,7 +6,7 @@ For bug reports, include your macOS version, Mac architecture, camera type, disp
 
 ## Develop and verify
 
-Use Xcode with Swift 6 and macOS 14 or later. No third-party packages are required.
+Use Xcode with Swift 6 and macOS 14 or later. SwiftPM resolves the pinned Sparkle update framework.
 
 ```sh
 swift test

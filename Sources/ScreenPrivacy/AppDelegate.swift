@@ -4,15 +4,18 @@ import AttentionCore
 import Carbon.HIToolbox
 import OverlayUI
 import ServiceManagement
+import Sparkle
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     private let camera = CameraMonitor()
     private let cover = PrivacyCover()
     private var attention = AttentionState()
     private var statusItem: NSStatusItem!
     private var appMenu: NSMenu!
+    private var updaterController: SPUStandardUpdaterController?
+    private let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
     private let stateItem = NSMenuItem(title: "Paused", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "Enable protection", action: #selector(toggle), keyEquivalent: "")
     private let cameraMenuItem = NSMenuItem(title: "Camera", action: nil, keyEquivalent: "")
@@ -53,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
+        updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        checkUpdatesItem.target = updaterController
+        checkUpdatesItem.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
         if defaults.bool(forKey: "enabled") && AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
             enabled = true
             resume()
@@ -67,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         appMenu = menu
         menu.autoenablesItems = false
+        menu.delegate = self
         // Grouped by purpose: protection, tuning, verification, setup, then meta.
         stateItem.isEnabled = false
         menu.addItem(stateItem)
@@ -113,11 +120,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let about = NSMenuItem(title: "About Screen Privacy…", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
+        checkUpdatesItem.isEnabled = false
+        menu.addItem(checkUpdatesItem)
         let quit = NSMenuItem(title: "Quit Screen Privacy", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
         updateStatus("Paused")
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        checkUpdatesItem.isEnabled = updaterController?.updater.canCheckForUpdates ?? false
     }
 
     @objc private func toggle() {
@@ -514,7 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.accessoryView = logoView
         }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
-        alert.informativeText = "Version \(version) · Open source under the MIT License\n\nThis app was made with ❤️ by Matti Vilola (iloapps.com)\n\nLocal head-direction detection. Higher tolerance allows more movement and waits longer before covering.\n\nWhy a frozen cover? A blurred screenshot hides later messages and window changes instead of showing a live view. It needs Screen Recording permission, but takes only a still image per display when covering. Images stay in memory and are discarded on return; no saved recordings, network requests, or accounts. Without permission, the cover is opaque.\n\nAny single person facing the camera can uncover the screen. The frozen image may remain recognizable, and system UI can appear above it. Lock your Mac for security."
+        alert.informativeText = "Version \(version) · Open source under the MIT License\n\nThis app was made with ❤️ by Matti Vilola (iloapps.com)\n\nLocal head-direction detection. Higher tolerance allows more movement and waits longer before covering.\n\nWhy a frozen cover? A blurred screenshot hides later messages and window changes instead of showing a live view. It needs Screen Recording permission, but takes only a still image per display when covering. Images stay in memory and are discarded on return. Without permission, the cover is opaque.\n\nCamera and screen images are never uploaded. Sparkle contacts GitHub for signed app updates. No accounts or analytics.\n\nAny single person facing the camera can uncover the screen. The frozen image may remain recognizable, and system UI can appear above it. Lock your Mac for security."
         alert.window.level = .statusBar
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()

@@ -28,7 +28,7 @@ Measure look-away and return latency at both tolerance extremes. Measure dropped
 
 ## Distribution
 
-Validate both architectures with `lipo`, inspect the bundle's plist/entitlements, verify the Developer ID signature and hardened runtime, and validate stapled app and DMG tickets. Test a quarantined download on another Mac. Local ad-hoc builds do not demonstrate Gatekeeper acceptance.
+Validate both architectures with `lipo`, inspect the bundle's plist/entitlements and bundled Sparkle notices, verify the Developer ID signature and hardened runtime on the app and Sparkle helpers, and validate stapled app and DMG tickets. Test a quarantined download on another Mac. Once a second version exists, use **Check for Updates…** in the installed older version and confirm the signed feed installs the new notarized DMG. Local ad-hoc builds do not demonstrate Gatekeeper acceptance or the end-to-end update path.
 
 ## Current verification
 

@@ -2,9 +2,9 @@
 
 ## Scope
 
-A small, dependency-free macOS menu bar app that estimates head direction using the camera, covers displays when attention is away, and uncovers them after steady attention returns. A tolerance control adjusts head-angle thresholds and the look-away delay; an optional custom message personalizes the cover. A cover immediately presents an opaque neutral surface, then may replace it with one frozen, blurred snapshot per display when Screen Recording permission is available.
+A small macOS menu bar app that estimates head direction using the camera, covers displays when attention is away, and uncovers them after steady attention returns. A tolerance control adjusts head-angle thresholds and the look-away delay; an optional custom message personalizes the cover. A cover immediately presents an opaque neutral surface, then may replace it with one frozen, blurred snapshot per display when Screen Recording permission is available. Sparkle supplies signed app updates.
 
-The app processes camera frames locally, makes no network requests, and does not capture screen audio, video, or a continuous screen feed. A permitted cover snapshot is a screen image, so the product must not claim that it never records or captures screens. Raw screen images are transient memory only; only the blurred result is displayed and it is released when the cover is removed. A frozen cover prevents later messages and window changes from appearing beneath a live blur, avoids a washed-out material appearance, and limits captures to cover transitions. The initial snapshot may still be recognizable through blur. It is a convenience privacy layer, not authentication or a replacement for the macOS lock screen.
+The app processes camera frames locally and does not capture screen audio, video, or a continuous screen feed. Sparkle contacts GitHub to check for and download app updates, but camera and screen images are never uploaded. A permitted cover snapshot is a screen image, so the product must not claim that it never records or captures screens. Raw screen images are transient memory only; only the blurred result is displayed and it is released when the cover is removed. A frozen cover prevents later messages and window changes from appearing beneath a live blur, avoids a washed-out material appearance, and limits captures to cover transitions. The initial snapshot may still be recognizable through blur. It is a convenience privacy layer, not authentication or a replacement for the macOS lock screen.
 
 ## Implemented
 
@@ -29,6 +29,7 @@ The app processes camera frames locally, makes no network requests, and does not
 - Local app builds, universal release builds, signing, notarization, ZIP/DMG packaging, and CI workflows.
 - MIT license, contribution guidance, and privacy limitations.
 - Dedicated app icon and brand logo, with reproducible icon packaging.
+- Sparkle update integration with a dedicated Keychain-held Ed25519 key, a manual update menu item, a signed release feed, and GitHub Release packaging commands.
 
 ## Before a stable binary release
 
@@ -39,4 +40,4 @@ The app processes camera frames locally, makes no network requests, and does not
 - Measure cover creation latency, memory, CPU, and energy on real hardware before making performance claims.
 - Validate Developer ID signing, notarization, stapling, and a quarantined download on another Mac.
 
-Keep the product simple: no cloud processing, accounts, telemetry, updater, or additional preferences without a demonstrated need.
+Keep the product simple: no cloud processing of camera or screen images, accounts, telemetry, or additional preferences without a demonstrated need. The only planned network feature is signed app updates.

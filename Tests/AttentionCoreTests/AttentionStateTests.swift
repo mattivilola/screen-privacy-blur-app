@@ -67,13 +67,59 @@ final class AttentionStateTests: XCTestCase {
         var state = AttentionState()
         recover(&state)
 
-        XCTAssertTrue(state.update(faces: [FacePose(yaw: .nan, pitch: 0)], at: 0.36))
-        XCTAssertTrue(state.update(faces: [pose()], at: 0.71))
-        XCTAssertFalse(state.update(faces: [pose()], at: 1.06))
+        // An unclear single face is debounced like a missing face (0.8 s at the default tolerance).
+        XCTAssertFalse(state.update(faces: [FacePose(yaw: .nan, pitch: 0)], at: 0.36))
+        XCTAssertTrue(state.update(faces: [FacePose(yaw: .nan, pitch: 0)], at: 1.16))
+
+        // While covered, an unclear frame discards recovery evidence.
+        XCTAssertTrue(state.update(faces: [pose()], at: 1.17))
+        XCTAssertTrue(state.update(faces: [FacePose(yaw: 0, pitch: .infinity)], at: 1.30))
+        XCTAssertTrue(state.update(faces: [pose()], at: 1.52))
+        XCTAssertTrue(state.update(faces: [pose()], at: 1.86))
+        XCTAssertFalse(state.update(faces: [pose()], at: 1.87))
 
         XCTAssertTrue(state.unavailable())
-        XCTAssertTrue(state.update(faces: [pose()], at: 1.07))
-        XCTAssertFalse(state.update(faces: [pose()], at: 1.42))
+        XCTAssertTrue(state.update(faces: [pose()], at: 2.0))
+        XCTAssertFalse(state.update(faces: [pose()], at: 2.35))
+    }
+
+    func testInvalidPoseCoversOnlyAfterAwayDelay() {
+        var state = AttentionState(tolerance: 0)
+        recover(&state)
+        let unclear = FacePose(yaw: .nan, pitch: .nan)
+
+        XCTAssertFalse(state.update(faces: [unclear], at: 0.4))
+        XCTAssertFalse(state.update(faces: [unclear], at: 0.74))
+        XCTAssertTrue(state.update(faces: [unclear], at: 0.75))
+    }
+
+    func testInvalidPoseWhileCoveredNeverUncoversAndResetsRecoveryEvidence() {
+        var state = AttentionState(tolerance: 0)
+        let unclear = FacePose(yaw: .nan, pitch: .nan)
+
+        XCTAssertTrue(state.update(faces: [pose()], at: 0))
+        XCTAssertTrue(state.update(faces: [unclear], at: 0.2))
+        // The earlier look no longer counts: recovery restarts at 0.4.
+        XCTAssertTrue(state.update(faces: [pose()], at: 0.4))
+        XCTAssertTrue(state.update(faces: [pose()], at: 0.74))
+        XCTAssertFalse(state.update(faces: [pose()], at: 0.75))
+
+        var unclearOnly = AttentionState(tolerance: 0)
+        for step in 0..<20 {
+            XCTAssertTrue(unclearOnly.update(faces: [unclear], at: Double(step) * 0.25))
+        }
+    }
+
+    func testValidLookBetweenInvalidFramesCancelsAwayTimer() {
+        var state = AttentionState(tolerance: 0)
+        recover(&state)
+        let unclear = FacePose(yaw: .nan, pitch: .nan)
+
+        XCTAssertFalse(state.update(faces: [unclear], at: 0.4))
+        XCTAssertFalse(state.update(faces: [pose()], at: 0.6))
+        XCTAssertFalse(state.update(faces: [unclear], at: 0.8))
+        XCTAssertFalse(state.update(faces: [unclear], at: 1.0))
+        XCTAssertTrue(state.update(faces: [unclear], at: 1.15))
     }
 
     func testOutOfOrderAndLargeGapsResetEvidenceAndCover() {

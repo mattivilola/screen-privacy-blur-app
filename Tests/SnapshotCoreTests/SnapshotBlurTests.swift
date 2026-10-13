@@ -33,6 +33,12 @@ struct SnapshotBlurTests {
         }
     }
 
+    @Test func blurRadiusPointsMapsStrengthAndClamps() {
+        for (strength, radius) in [(0.0, 18.0), (0.25, 15), (0.5, 12), (1, 6), (5, 6), (-3, 18), (.nan, 12), (.infinity, 12)] {
+            #expect(abs(SnapshotDisplay.blurRadiusPoints(forStrength: strength) - radius) < 0.001)
+        }
+    }
+
     @Test func blurStrengthClampsExtremeAndInvalidValues() {
         // Out-of-range values clamp to the nearest end; non-finite values fall back to the default.
         for (strength, radius) in [(5.0, 6.0), (-3.0, 18.0), (.nan, 12.0), (.infinity, 12.0)] {

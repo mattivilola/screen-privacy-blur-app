@@ -16,7 +16,6 @@ public struct FacePose: Sendable {
 /// The state begins covered and only uncovers after one valid face has looked
 /// at the screen continuously for the recovery interval.
 public struct AttentionState: Sendable {
-    private static let defaultTolerance = 0.5
     private static let recoveryDelay: TimeInterval = 0.35
     private static let maximumEvidenceGap: TimeInterval = 1.0
     private static let timingEpsilon: TimeInterval = 0.000_001
@@ -27,7 +26,7 @@ public struct AttentionState: Sendable {
 
     public var tolerance: Double {
         didSet {
-            let normalized = Self.normalizedTolerance(tolerance)
+            let normalized = AttentionLimits.normalizedTolerance(tolerance)
             if tolerance != normalized {
                 tolerance = normalized
             }
@@ -40,7 +39,7 @@ public struct AttentionState: Sendable {
     public private(set) var isCovered: Bool
 
     public init(tolerance: Double = 0.5) {
-        self.tolerance = Self.normalizedTolerance(tolerance)
+        self.tolerance = AttentionLimits.normalizedTolerance(tolerance)
         self.isCovered = true
     }
 
@@ -67,8 +66,11 @@ public struct AttentionState: Sendable {
         }
         lastTime = time
 
-        // More than one person is an immediate privacy risk. An invalid pose is
-        // treated the same way: it is not evidence that the display is safe.
+        // More than one person is an immediate privacy risk. A single face with
+        // an invalid pose (a low-confidence detection) is not evidence that the
+        // display is safe, but it is no stronger evidence of a bystander than a
+        // missing face: it follows the same debounced look-away path, never
+        // counts toward recovery, and cannot uncover a covered screen.
         guard faces.count == 1, let face = faces.first else {
             if faces.count > 1 {
                 return coverImmediately()
@@ -77,7 +79,7 @@ public struct AttentionState: Sendable {
         }
 
         guard Self.isValid(face) else {
-            return coverImmediately()
+            return handleAway(at: time)
         }
 
         if isCovered {
@@ -121,7 +123,7 @@ public struct AttentionState: Sendable {
         guard !isCovered else { return isCovered }
 
         if let awaySince {
-            if time - awaySince >= Self.awayDelay(for: tolerance) - Self.timingEpsilon {
+            if time - awaySince >= AttentionLimits(tolerance: tolerance).awayDelay - Self.timingEpsilon {
                 isCovered = true
                 self.awaySince = nil
             }
@@ -147,26 +149,16 @@ public struct AttentionState: Sendable {
         awaySince = nil
     }
 
-    private static func normalizedTolerance(_ value: Double) -> Double {
-        guard value.isFinite else { return defaultTolerance }
-        return min(max(value, 0), 1)
-    }
-
     private static func isValid(_ face: FacePose) -> Bool {
         face.yaw.isFinite && face.pitch.isFinite
     }
 
     private static func isLooking(_ face: FacePose, tolerance: Double, returning: Bool) -> Bool {
-        let yawLimit = 12 + (23 * tolerance)
-        let pitchLimit = 12 + (18 * tolerance)
-        let hysteresis = returning ? 0.8 : 1.0
+        let limits = AttentionLimits(tolerance: tolerance)
+        let hysteresis = returning ? AttentionLimits.recoveryFraction : 1.0
         let radiansToDegrees = 180 / Double.pi
 
-        return abs(face.yaw * radiansToDegrees) <= yawLimit * hysteresis
-            && abs(face.pitch * radiansToDegrees) <= pitchLimit * hysteresis
-    }
-
-    private static func awayDelay(for tolerance: Double) -> TimeInterval {
-        0.35 + (0.90 * tolerance)
+        return abs(face.yaw * radiansToDegrees) <= limits.yawDegrees * hysteresis
+            && abs(face.pitch * radiansToDegrees) <= limits.pitchDegrees * hysteresis
     }
 }

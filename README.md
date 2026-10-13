@@ -25,9 +25,11 @@ Press **⌥⌘P** (Option-Command-P) at any time to immediately toggle protectio
 
 Choose **Preview for 5 seconds** to see the frozen blur, logo, and message without looking away. It works while protection is paused. Preview and enabling protection can ask for Screen Recording permission because they may create a snapshot; select **Screen Capture Permission…** in the menu to request it directly. Selecting Preview again restarts its five-second timer. Afterward, the app returns to normal protection behavior; an active cover stays on if attention detection still requires it.
 
-**Tolerance** controls how much head movement is allowed and how long the app waits before covering. Moving it right makes detection more forgiving.
+**Tolerance** controls how much head movement is allowed and how long the app waits before covering. Moving it right makes detection more forgiving. The slider shows a 0–100 value with a color tier (green Strict, blue Balanced, orange Relaxed) and spells out what it means in practice, for example “Turn ±24° · tilt ±21° · covers after 0.8 s”.
 
-**Blur level** controls how strongly the frozen cover blurs the screen. Dragging right keeps text more readable; dragging left hides more of the snapshot. The default is the middle, the app's original blur strength.
+**Blur level** controls how strongly the frozen cover blurs the screen. Dragging right keeps text more readable; dragging left hides more of the snapshot. The default is the middle, the app's original blur strength. The slider shows the blur radius in points with a color tier (green Heavy, blue Medium, orange Light) and what that level hides.
+
+The **Live check** meter at the top of the menu shows your current head direction against the look-away limit while protection is active. Green means you are within the return range, orange means you are between the return range and the limit, and red means you are looking away. The two ticks on the bar mark the return range and the limit. The meter also says when no face, several faces, or only an unclear face is seen, and names bright or dark lighting when that is the likely reason. Moving the Tolerance slider updates it immediately.
 
 Use the **Camera** submenu to select between available FaceTime, external webcams, or Continuity Cameras, or leave it on **Automatic**. If your MacBook is closed in clamshell mode, it automatically ignores the suspended internal camera and falls back to connected external cameras.
 
@@ -79,7 +81,7 @@ See [release instructions](docs/RELEASING.md) for universal builds, Developer ID
 - A frozen snapshot is safer than a live transparent or continuously updated blur for this purpose: once the snapshot is captured, later messages and window changes are not revealed beneath it. It also avoids the washed-out appearance of a system material blur and limits screen capture to cover transitions. This is a relative privacy benefit, not a security guarantee: the original scene can remain recognizable through blur.
 - Update downloads are separate from the capture path: the screen image and camera frames are never sent to Sparkle or GitHub. The update feed and archives must be signed by the project's update key; the app checks these signatures before installing an update.
 - This is **not authentication or a screen lock**. Any single person facing the camera can uncover the screen. Face detection can miss bystanders, fail in low light, or be fooled by an image.
-- Multiple detected faces, invalid pose information, and camera errors cannot uncover a covered screen. Brief attention loss is debounced; lack of fresh camera frames triggers a cover after about 1.5 seconds.
+- Multiple detected faces, unclear pose information, and camera errors cannot uncover a covered screen. Several faces and camera errors cover immediately. A single face whose pose is unclear (a low-confidence detection) is treated like a missing face: it covers only after the look-away delay, so a brief detection dropout does not flash the cover. Brief attention loss is debounced; lack of fresh camera frames triggers a cover after about 1.5 seconds.
 - The overlay uses a frozen, Gaussian-blurred screen image where available, with the app icon and your message in a centered, rounded panel on each display. There is no white tint over the snapshot, and the blur strength can be changed in the menu. It stays static until the cover is removed or reset by a display/lifecycle change, so ordinary content changes behind it are not reflected. An opaque neutral fallback is used when a snapshot cannot be made. Blur can leave content recognizable. Menu bar and higher-level system UI may remain visible. Full-screen apps, Spaces, Mission Control, and display changes require verification on your setup.
 - The overlay is mouse-transparent: applications keep running and keyboard/mouse input still reaches them. Pause from the menu bar before interacting with a covered display. It is not a guarantee of concealment in screenshots or screen sharing.
 - The app cancels pending work and starts no new screen captures after receiving workspace sleep, inactivity, or lock notifications. Late results are discarded. Resuming or changing the display arrangement clears stale images and can create a fresh snapshot. These notifications are not a security boundary.
@@ -90,12 +92,14 @@ Use the macOS lock screen when you need access control or dependable concealment
 
 The app requests 640×480 camera capture (or the low preset as a fallback) and a 4 FPS camera stream where supported, then runs face detection at most roughly 4 times per second on a serial utility queue. Late frames are dropped. Each cover capture performs one still capture per display, scales it to a longest edge of 1600 pixels, blurs it once, and reuses the result until uncovering. There is no screen-capture loop or per-frame screen redraw. Camera hardware, snapshot creation, and the compositor still consume power. CPU, memory, latency, and battery claims have not yet been measured.
 
+Backlight and direct sun can hide a face from the camera, and the built-in camera offers no exposure controls. When a frame has no face or only a low-confidence one, the app re-checks that same frame once with a locally brightened or softened copy (lifting shadows for a backlit silhouette, taming highlights for a washed-out face) and keeps whichever result finds more faces or is more confident. It never hides a face found by the normal pass, and it is skipped when the first pass is already conclusive. The adjusted copy exists only in memory for that check; frames are still never saved or sent anywhere. The Live check meter notes when this light assist helped.
+
 The detection pipeline deliberately uses face rectangles with head angles instead of detailed eye landmarks or a separate neural model. Tolerance adjusts yaw (12–35°), pitch (12–30°), and look-away delay (0.35–1.25 seconds). Returning requires a narrower head-angle range and 0.35 seconds of steady attention, quantized by the frame cadence.
 
 ## Development
 
-- `Sources/AttentionCore`: deterministic attention policy and timing.
-- `Sources/OverlayUI`: message editing and responsive overlay layout.
+- `Sources/AttentionCore`: deterministic attention policy, timing, limits, and detection merging.
+- `Sources/OverlayUI`: message editing, responsive overlay layout, and the menu dashboard views.
 - `Sources/SnapshotCore`: one-shot screen capture and local, color-preserving blur.
 - `Sources/ScreenPrivacy`: menu bar app, camera pipeline, display covers.
 - `Tests/AttentionCoreTests`: regression tests without camera access.

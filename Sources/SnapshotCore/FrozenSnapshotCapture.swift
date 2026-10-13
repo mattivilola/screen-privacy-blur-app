@@ -22,16 +22,25 @@ public struct SnapshotDisplay: Sendable {
         self.pointHeight = pointHeight
         self.screenRect = screenRect ?? CGRect(x: 0, y: 0, width: pointWidth, height: pointHeight)
         self.coverWindowID = coverWindowID
-        self.blurStrength = min(max(blurStrength.isFinite ? blurStrength : 0.5, 0), 1)
+        self.blurStrength = Self.normalizedStrength(blurStrength)
+    }
+
+    /// Gaussian radius in screen points for a blur strength: 18 (heavy) down to 6
+    /// (light), with the historical 12-point default at the midpoint. Strength is
+    /// clamped to 0...1; a non-finite value falls back to the default.
+    public static func blurRadiusPoints(forStrength strength: Double) -> Double {
+        18 - 12 * normalizedStrength(strength)
+    }
+
+    private static func normalizedStrength(_ strength: Double) -> Double {
+        min(max(strength.isFinite ? strength : 0.5, 0), 1)
     }
 
     // Rendering a blurred image at Retina resolution wastes memory and GPU work.
     var scale: Double { min(1, 1600 / max(1, pointWidth, pointHeight)) }
     var width: Int { max(1, Int((pointWidth * scale).rounded())) }
     var height: Int { max(1, Int((pointHeight * scale).rounded())) }
-    // Gaussian radius in screen points: 18 (heavy) down to 6 (light), with the
-    // historical 12-point default at the midpoint.
-    var blurRadius: Double { (18 - 12 * blurStrength) * scale }
+    var blurRadius: Double { Self.blurRadiusPoints(forStrength: blurStrength) * scale }
 }
 
 /// Captures each display once with ScreenCaptureKit (or CoreGraphics fallback) and blurs the result off the main actor.

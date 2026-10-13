@@ -29,6 +29,10 @@ The app processes camera frames locally and does not capture screen audio, video
 - Local app builds, universal release builds, signing, notarization, ZIP/DMG packaging, and CI workflows.
 - MIT license, contribution guidance, and privacy limitations.
 - Dedicated app icon and brand logo, with reproducible icon packaging.
+- Menu dashboard: status header with tone and selected camera, grouped sections with icons, and sliders that show a value, a color tier, and a plain-language explanation.
+- Live check meter for head direction against the look-away limit, driven by shared `AttentionLimits` so the menu and the attention policy cannot disagree.
+- Software light assist for backlit or sun-washed faces: one bounded, in-memory re-exposure pass per inconclusive frame, with lighting classified from sampled luma and explained in the menu status.
+- An unclear single face is debounced like a missing face; several faces still cover immediately.
 - Sparkle update integration with a dedicated Keychain-held Ed25519 key, a manual update menu item, a signed release feed, and GitHub Release packaging commands.
 
 ## Before a stable binary release

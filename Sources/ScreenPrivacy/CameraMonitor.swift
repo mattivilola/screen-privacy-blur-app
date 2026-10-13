@@ -1,9 +1,19 @@
 import AVFoundation
 import AttentionCore
+import CoreImage
 import Vision
 
+/// One analyzed camera frame: the poses for `AttentionState` plus what the
+/// frame looked like, so the menu can explain why a face was not found.
+struct FrameAnalysis: Sendable {
+    let faces: [FacePose]
+    let time: TimeInterval
+    let lighting: LightingCondition
+    let usedLightAssist: Bool
+}
+
 enum CameraEvent: Sendable {
-    case faces([FacePose], time: TimeInterval)
+    case frame(FrameAnalysis)
     case unavailable(String)
 }
 
@@ -26,12 +36,41 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var session: AVCaptureSession?
     private var sink: (@Sendable (CameraEvent) -> Void)?
     private var lastAnalysis: TimeInterval = 0
+    private var ciContext: CIContext?
+    private var preferredAssist: LightAssist?
+    private var nextAssistIndex = 0
     var preferredDeviceID: String?
     private let request: VNDetectFaceRectanglesRequest = {
         let request = VNDetectFaceRectanglesRequest()
         request.revision = VNDetectFaceRectanglesRequestRevision3
         return request
     }()
+
+    /// Software re-exposures for frames where the face is too backlit or washed out
+    /// to detect. Built-in cameras expose no exposure controls, so this is done on
+    /// the pixel buffer. At most one runs per frame to keep CPU bounded.
+    private enum LightAssist: CaseIterable {
+        /// Backlit silhouette: open up shadows.
+        case liftShadows
+        /// Washed-out face in direct sun: pull highlights down.
+        case tameHighlights
+
+        func apply(to image: CIImage) -> CIImage {
+            switch self {
+            case .liftShadows:
+                return image
+                    .applyingFilter("CIHighlightShadowAdjust",
+                                    parameters: ["inputShadowAmount": 1.0, "inputHighlightAmount": 0.6])
+                    .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 0.8])
+                    .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.1])
+            case .tameHighlights:
+                return image
+                    .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -1.0])
+                    .applyingFilter("CIHighlightShadowAdjust", parameters: ["inputHighlightAmount": 0.3])
+                    .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.25])
+            }
+        }
+    }
 
     static func availableDevices() -> [CameraDevice] {
         let discovery = AVCaptureDevice.DiscoverySession(
@@ -132,6 +171,9 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         session = nil
         lastAnalysis = 0
+        ciContext = nil
+        preferredAssist = nil
+        nextAssistIndex = 0
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
@@ -146,18 +188,79 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         autoreleasepool {
             do {
-                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up).perform([request])
-                let observations = request.results ?? []
-                // Keep ambiguous detections: dropping one could make multiple
-                // people appear to be a single trusted attention signal.
-                let faces = observations.map { face in
-                    FacePose(yaw: face.confidence >= 0.7 ? (face.yaw?.doubleValue ?? .nan) : .nan,
-                             pitch: face.confidence >= 0.7 ? (face.pitch?.doubleValue ?? .nan) : .nan)
+                let lighting = Self.lighting(of: buffer)
+                let primary = try detectFaces(with: VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up))
+                var chosen = primary
+                var usedLightAssist = false
+                if !FaceDetectionMerge.isConclusive(primary) {
+                    let assisted = lightAssistedFaces(from: buffer)
+                    chosen = FaceDetectionMerge.preferred(primary, assisted)
+                    usedLightAssist = chosen == assisted && FaceDetectionMerge.isConclusive(assisted)
                 }
-                sink(.faces(faces, time: now))
+                sink(.frame(FrameAnalysis(faces: FaceDetectionMerge.poses(chosen), time: now,
+                                          lighting: lighting, usedLightAssist: usedLightAssist)))
             } catch {
                 sink(.unavailable("Attention detection is unavailable"))
             }
         }
+    }
+
+    private func detectFaces(with handler: VNImageRequestHandler) throws -> [DetectedFace] {
+        try handler.perform([request])
+        // Keep ambiguous detections: dropping one could make multiple people
+        // appear to be a single trusted attention signal. Pose trust is decided
+        // later by `FaceDetectionMerge.poses`.
+        return (request.results ?? []).map {
+            DetectedFace(confidence: Double($0.confidence), yaw: $0.yaw?.doubleValue, pitch: $0.pitch?.doubleValue)
+        }
+    }
+
+    /// Runs one re-exposed detection pass. A variant that recently worked is
+    /// reused; otherwise variants alternate frame by frame. A failed pass is
+    /// not fatal: the primary result still stands.
+    private func lightAssistedFaces(from buffer: CVPixelBuffer) -> [DetectedFace] {
+        let variants = LightAssist.allCases
+        let variant = preferredAssist ?? variants[nextAssistIndex % variants.count]
+        let context = ciContext ?? CIContext(options: [.cacheIntermediates: false])
+        ciContext = context
+
+        let image = variant.apply(to: CIImage(cvPixelBuffer: buffer))
+        let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [.ciContext: context])
+        let faces = (try? detectFaces(with: handler)) ?? []
+        if FaceDetectionMerge.isConclusive(faces) {
+            preferredAssist = variant
+        } else {
+            preferredAssist = nil
+            nextAssistIndex = ((variants.firstIndex(of: variant) ?? 0) + 1) % variants.count
+        }
+        return faces
+    }
+
+    /// Samples every 8th luma pixel; a full pass over a 640x480 frame is not needed
+    /// to tell sunlit or dark scenes apart.
+    private static func lighting(of buffer: CVPixelBuffer) -> LightingCondition {
+        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return .normal }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return .normal }
+
+        let width = CVPixelBufferGetWidthOfPlane(buffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+        let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        let step = 8
+        var sum = 0.0, highlights = 0.0, shadows = 0.0, count = 0.0
+        for y in stride(from: 0, to: height, by: step) {
+            let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: UInt8.self)
+            for x in stride(from: 0, to: width, by: step) {
+                let luma = Double(row[x]) / 255
+                sum += luma
+                if luma >= 0.92 { highlights += 1 }
+                if luma <= 0.08 { shadows += 1 }
+                count += 1
+            }
+        }
+        guard count > 0 else { return .normal }
+        return LightingCondition.classify(meanLuma: sum / count, highlightFraction: highlights / count,
+                                          shadowFraction: shadows / count)
     }
 }

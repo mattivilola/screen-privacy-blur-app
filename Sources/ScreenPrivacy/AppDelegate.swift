@@ -16,7 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var appMenu: NSMenu!
     private var updaterController: SPUStandardUpdaterController?
     private let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
-    private let stateItem = NSMenuItem(title: "Paused", action: nil, keyEquivalent: "")
+    private let stateItem = NSMenuItem()
+    private let statusHeader = StatusHeaderView()
+    private let attentionMeter = AttentionMeterView(recoveryFraction: AttentionLimits.recoveryFraction)
     private let toggleItem = NSMenuItem(title: "Enable protection", action: #selector(toggle), keyEquivalent: "")
     private let cameraMenuItem = NSMenuItem(title: "Camera", action: nil, keyEquivalent: "")
     private let cameraSubmenu = NSMenu(title: "Camera")
@@ -30,11 +32,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var screensSleeping = false
     private var generation = UUID()
     private var lastFrame: TimeInterval?
+    private var latestAnalysis: FrameAnalysis?
     private var watchdog: Timer?
     private var previewTimer: Timer?
     private var previewID: UUID?
     private var protectionCoverVisible = false
     private var protectionStatus = "Paused"
+    private var protectionTone = DashboardTone.inactive
+    private var displayedTone = DashboardTone.inactive
+    private var cameraSubtitle = "Camera: Automatic"
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
     private var suspended: Bool { sleeping || sessionInactive || screenLocked || screensSleeping }
@@ -74,8 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenu = menu
         menu.autoenablesItems = false
         menu.delegate = self
-        // Grouped by purpose: protection, tuning, verification, setup, then meta.
-        stateItem.isEnabled = false
+        // Grouped by purpose: protection, live check, detection, cover, setup, then meta.
+        stateItem.view = statusHeader
         menu.addItem(stateItem)
         toggleItem.target = self
         toggleItem.keyEquivalent = "p"
@@ -83,54 +89,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggleItem)
         menu.addItem(.separator())
 
-        menu.addItem(controlItem(title: "Tolerance", value: attention.tolerance,
-                                 leftLabel: "Stricter", rightLabel: "More forgiving",
-                                 action: #selector(changeTolerance(_:)),
-                                 accessibility: "Head position and look-away tolerance",
-                                 tooltip: "Higher tolerance allows more head movement and waits longer before covering."))
-        menu.addItem(controlItem(title: "Blur level", value: blurStrength,
-                                 leftLabel: "Heavy blur", rightLabel: "Readable",
-                                 action: #selector(changeBlurStrength(_:)),
-                                 accessibility: "Cover blur level",
-                                 tooltip: "Drag left to hide more of the cover; right keeps text more readable."))
-        let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
-        message.target = self
-        menu.addItem(message)
+        menu.addItem(.sectionHeader(title: "Live check"))
+        let meterItem = NSMenuItem()
+        meterItem.view = attentionMeter
+        menu.addItem(meterItem)
         menu.addItem(.separator())
 
+        menu.addItem(.sectionHeader(title: "Detection"))
+        let toleranceItem = NSMenuItem()
+        toleranceItem.view = SettingSliderView(
+            title: "Tolerance", leftLabel: "Stricter", rightLabel: "More forgiving",
+            accessibilityLabel: "Head position and look-away tolerance",
+            toolTip: "Higher tolerance allows more head movement and waits longer before covering.",
+            value: attention.tolerance,
+            describe: DashboardFormatting.toleranceReading,
+            onChange: { [weak self] value in self?.setTolerance(value) })
+        menu.addItem(toleranceItem)
         cameraMenuItem.submenu = cameraSubmenu
+        cameraMenuItem.image = Self.symbol("camera")
         updateCameraMenu()
         menu.addItem(cameraMenuItem)
+        menu.addItem(.separator())
 
+        menu.addItem(.sectionHeader(title: "Cover"))
+        let blurItem = NSMenuItem()
+        blurItem.view = SettingSliderView(
+            title: "Blur level", leftLabel: "Heavy blur", rightLabel: "Readable",
+            accessibilityLabel: "Cover blur level",
+            toolTip: "Drag left to hide more of the cover; right keeps text more readable.",
+            value: blurStrength,
+            describe: DashboardFormatting.blurReading,
+            onChange: { [weak self] value in self?.setBlurStrength(value) })
+        menu.addItem(blurItem)
+        let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
+        message.target = self
+        message.image = Self.symbol("text.bubble")
+        menu.addItem(message)
+        let preview = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
+        preview.target = self
+        preview.image = Self.symbol("eye")
+        menu.addItem(preview)
+        menu.addItem(.separator())
+
+        menu.addItem(.sectionHeader(title: "Setup"))
+        let screenAccess = NSMenuItem(title: "Screen Capture Permission…", action: #selector(screenCapturePermission), keyEquivalent: "")
+        screenAccess.target = self
+        screenAccess.image = Self.symbol("rectangle.dashed.badge.record")
+        menu.addItem(screenAccess)
         launchAtLoginItem.target = self
+        launchAtLoginItem.image = Self.symbol("person.crop.circle.badge.checkmark")
         updateLaunchAtLoginState()
         menu.addItem(launchAtLoginItem)
         menu.addItem(.separator())
 
-        let preview = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
-        preview.target = self
-        menu.addItem(preview)
-        menu.addItem(.separator())
-
-        let screenAccess = NSMenuItem(title: "Screen Capture Permission…", action: #selector(screenCapturePermission), keyEquivalent: "")
-        screenAccess.target = self
-        menu.addItem(screenAccess)
-        menu.addItem(.separator())
-
         let about = NSMenuItem(title: "About Screen Privacy…", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
+        about.image = Self.symbol("info.circle")
         menu.addItem(about)
         checkUpdatesItem.isEnabled = false
+        checkUpdatesItem.image = Self.symbol("arrow.triangle.2.circlepath")
         menu.addItem(checkUpdatesItem)
         let quit = NSMenuItem(title: "Quit Screen Privacy", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
+        quit.image = Self.symbol("power")
         menu.addItem(quit)
         statusItem.menu = menu
-        updateStatus("Paused")
+        updateStatus("Paused", tone: .inactive)
+    }
+
+    private static func symbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         checkUpdatesItem.isEnabled = updaterController?.updater.canCheckForUpdates ?? false
+        refreshAttentionMeter()
     }
 
     @objc private func toggle() {
@@ -141,10 +174,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             defaults.set(false, forKey: "enabled")
             stopCapture()
             setCoverVisible(false)
-            updateStatus("Paused")
+            updateStatus("Paused", tone: .inactive)
         } else {
             enableWithPermission()
         }
+        refreshAttentionMeter()
         // Keep the complete menu attached while protection changes the status title.
         statusItem.menu = appMenu
     }
@@ -156,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let token = UUID()
         previewID = token
         cover.setVisible(true)
-        updateStatus(protectionStatus)
+        updateStatus(protectionStatus, tone: protectionTone)
         let timer = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.previewID == token else { return }
@@ -173,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         previewTimer = nil
         previewID = nil
         cover.setVisible(protectionCoverVisible)
-        updateStatus(protectionStatus)
+        updateStatus(protectionStatus, tone: protectionTone)
     }
 
     private func setCoverVisible(_ visible: Bool) {
@@ -204,11 +238,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.permissionPending = false
                     self.toggleItem.isEnabled = true
                     if granted { self.enableWithPermission() }
-                    else { self.updateStatus("Camera permission required") }
+                    else { self.updateStatus("Camera permission required", tone: .alert) }
                 }
             }
         default:
-            updateStatus("Camera permission required")
+            updateStatus("Camera permission required", tone: .alert)
             let alert = NSAlert()
             alert.messageText = "Allow camera access"
             alert.informativeText = "Enable Screen Privacy in System Settings → Privacy & Security → Camera, then enable protection again. Frames are processed locally and never saved."
@@ -228,10 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = attention.unavailable()
         setCoverVisible(true)
         guard !suspended else {
-            updateStatus("Protection suspended")
+            updateStatus("Protection suspended", tone: .inactive)
+            refreshAttentionMeter()
             return
         }
-        updateStatus("Covered · checking attention")
+        updateStatus("Covered · checking attention", tone: .caution)
+        refreshAttentionMeter()
         let token = generation
         lastFrame = ProcessInfo.processInfo.systemUptime
         camera.start { [weak self] event in
@@ -251,39 +287,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         watchdog?.invalidate()
         watchdog = nil
         lastFrame = nil
+        latestAnalysis = nil
         camera.stop()
     }
 
     private func receive(_ event: CameraEvent) {
+        defer { refreshAttentionMeter() }
         switch event {
-        case let .faces(faces, time):
-            guard ProcessInfo.processInfo.systemUptime - time < 1 else {
+        case let .frame(analysis):
+            guard ProcessInfo.processInfo.systemUptime - analysis.time < 1 else {
                 setCoverVisible(attention.unavailable())
-                updateStatus("Covered · waiting for fresh frames")
+                updateStatus("Covered · waiting for fresh frames", tone: .alert)
                 return
             }
-            lastFrame = time
-            setCoverVisible(attention.update(faces: faces, at: time))
-            updateStatus(protectionCoverVisible ? "Covered · look toward the camera" : "Protection active")
+            lastFrame = analysis.time
+            latestAnalysis = analysis
+            setCoverVisible(attention.update(faces: analysis.faces, at: analysis.time))
+            if protectionCoverVisible {
+                updateStatus(Self.coveredStatus(for: analysis), tone: .caution)
+            } else {
+                updateStatus("Protection active", tone: .good)
+            }
         case let .unavailable(reason):
+            latestAnalysis = nil
             setCoverVisible(attention.unavailable())
-            updateStatus("Covered · \(reason)")
+            updateStatus("Covered · \(reason)", tone: .alert)
         }
     }
 
+    /// Names harsh lighting as the reason when no face was found.
+    private static func coveredStatus(for analysis: FrameAnalysis) -> String {
+        guard analysis.faces.isEmpty else { return "Covered · look toward the camera" }
+        switch analysis.lighting {
+        case .bright: return "Covered · too bright to see you"
+        case .dark: return "Covered · too dark to see you"
+        case .normal: return "Covered · look toward the camera"
+        }
+    }
+
+    private func refreshAttentionMeter() {
+        attentionMeter.update(DashboardFormatting.attentionReading(
+            protectionEnabled: enabled, suspended: suspended, analysis: latestAnalysis,
+            now: ProcessInfo.processInfo.systemUptime, tolerance: attention.tolerance))
+    }
+
     private func checkFreshness() {
+        refreshAttentionMeter()
         guard enabled, !suspended, let lastFrame,
               ProcessInfo.processInfo.systemUptime - lastFrame > 1.5 else { return }
         setCoverVisible(attention.unavailable())
-        updateStatus("Covered · camera unavailable; pause to retry")
+        updateStatus("Covered · camera unavailable; pause to retry", tone: .alert)
     }
 
-    @objc private func changeTolerance(_ sender: NSSlider) {
-        attention.tolerance = sender.doubleValue
+    private func setTolerance(_ value: Double) {
+        attention.tolerance = value
         defaults.set(attention.tolerance, forKey: "tolerance")
+        // Immediate feedback: re-read the stored face against the new limits.
+        refreshAttentionMeter()
     }
 
-    /// Strength 0–1 maps to a Gaussian radius of 18→6 screen points; 0.5 is the historical 12.
+    /// Strength 0–1 maps to a Gaussian radius via `SnapshotDisplay.blurRadiusPoints(forStrength:)`;
+    /// 0.5 is the historical default.
     private static let defaultBlurStrength = 0.5
 
     private var blurStrength: Double {
@@ -293,38 +357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : min(max(value.isFinite ? value : Self.defaultBlurStrength, 0), 1)
     }
 
-    /// Shared layout for the embedded slider controls with pixel-perfect left and right labels.
-    private func controlItem(title: String, value: Double, leftLabel: String, rightLabel: String,
-                             action: Selector, accessibility: String, tooltip: String) -> NSMenuItem {
-        let control = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 86))
-        let label = NSTextField(labelWithString: title)
-        label.frame = NSRect(x: 18, y: 60, width: 210, height: 18)
-        control.addSubview(label)
-        let slider = NSSlider(value: value, minValue: 0, maxValue: 1,
-                              target: self, action: action)
-        slider.frame = NSRect(x: 16, y: 31, width: 218, height: 24)
-        slider.isContinuous = true
-        slider.setAccessibilityLabel(accessibility)
-        slider.toolTip = tooltip
-        control.addSubview(slider)
-        let leftField = NSTextField(labelWithString: leftLabel)
-        leftField.font = .systemFont(ofSize: 11)
-        leftField.textColor = .secondaryLabelColor
-        leftField.frame = NSRect(x: 18, y: 10, width: 105, height: 16)
-        control.addSubview(leftField)
-        let rightField = NSTextField(labelWithString: rightLabel)
-        rightField.font = .systemFont(ofSize: 11)
-        rightField.textColor = .secondaryLabelColor
-        rightField.alignment = .right
-        rightField.frame = NSRect(x: 125, y: 10, width: 109, height: 16)
-        control.addSubview(rightField)
-        let item = NSMenuItem()
-        item.view = control
-        return item
-    }
-
-    @objc private func changeBlurStrength(_ sender: NSSlider) {
-        cover.blurStrength = sender.doubleValue
+    private func setBlurStrength(_ value: Double) {
+        cover.blurStrength = value
         defaults.set(cover.blurStrength, forKey: "blurStrength")
     }
 
@@ -332,6 +366,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cameraSubmenu.removeAllItems()
         let devices = CameraMonitor.availableDevices()
         let selectedID = defaults.string(forKey: "selectedCameraID")
+        let selectedName = devices.first(where: { $0.id == selectedID })?.localizedName
+        cameraSubtitle = "Camera: \(selectedName ?? "Automatic")"
+        renderStatusHeader()
 
         let autoItem = NSMenuItem(title: "Automatic", action: #selector(selectCamera(_:)), keyEquivalent: "")
         autoItem.target = self
@@ -403,15 +440,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func updateStatus(_ text: String) {
+    private func updateStatus(_ text: String, tone: DashboardTone) {
         protectionStatus = text
+        protectionTone = tone
         let text = previewID == nil ? text : "Preview · 5 seconds"
-        guard stateItem.title != text || statusItem.button?.image == nil else { return }
+        let tone = previewID == nil ? tone : .balanced
+        guard stateItem.title != text || displayedTone != tone || statusItem.button?.image == nil else { return }
         stateItem.title = text
+        displayedTone = tone
+        renderStatusHeader()
         toggleItem.title = enabled ? "Pause protection" : "Enable protection"
+        toggleItem.image = Self.symbol(enabled ? "pause.circle" : "play.circle")
         let symbol = enabled ? (cover.isVisible ? "eye.slash.fill" : "eye.fill") : "eye.slash"
         statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Screen Privacy: \(text)")
         statusItem.button?.toolTip = "Screen Privacy: \(text)"
+    }
+
+    private func renderStatusHeader() {
+        statusHeader.update(title: stateItem.title, subtitle: cameraSubtitle, tone: displayedTone)
     }
 
     private func observe(_ name: Notification.Name, center: NotificationCenter,
@@ -428,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func lifecycleChanged() {
         cover.captureAllowed = !suspended
         if suspended { endPreview() }
-        if enabled { resume() }
+        if enabled { resume() } else { refreshAttentionMeter() }
     }
 
     private func observeLifecycle() {
@@ -456,7 +502,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observe(AVCaptureSession.runtimeErrorNotification, center: .default) { app in
             guard app.enabled, !app.suspended else { return }
             app.setCoverVisible(app.attention.unavailable())
-            app.updateStatus("Covered · camera error; pause to retry")
+            app.updateStatus("Covered · camera error; pause to retry", tone: .alert)
+            app.refreshAttentionMeter()
         }
     }
 

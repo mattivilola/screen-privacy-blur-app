@@ -1,5 +1,13 @@
 # Screen Privacy releases
 
+## Unreleased
+
+- Redesigned menu with a status header, grouped sections, and icons.
+- New Live check meter shows your head direction against the look-away limit, in green, orange, or red.
+- Tolerance and Blur level sliders now show a value, a color tier, and what the setting means in practice.
+- Better detection in bright sun and backlight: a frame with no clear face is re-checked once with adjusted exposure, and the menu says when light is the likely problem.
+- A single unclear face now uses the look-away delay instead of covering immediately, which reduces flicker from brief detection dropouts. Several faces still cover immediately.
+
 ## 0.1.0
 
 First public release of Screen Privacy for macOS 14 and later.

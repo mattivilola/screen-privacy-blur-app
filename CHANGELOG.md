@@ -1,6 +1,6 @@
 # Screen Privacy releases
 
-## Unreleased
+## 0.1.1
 
 - Redesigned menu with a status header, grouped sections, and icons.
 - New Live check meter shows your head direction against the look-away limit, in green, orange, or red.

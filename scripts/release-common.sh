@@ -20,9 +20,11 @@ assert_release_signed_app() {
   local details
   codesign --verify --deep --strict --verbose=2 "$1" || fail "App signature verification failed."
   details="$(codesign -d --verbose=4 "$1" 2>&1)" || fail "Cannot inspect app signature."
-  print -r -- "$details" | grep -Fqx "Authority=$2" || fail "App is not signed by the configured Developer ID identity."
-  print -r -- "$details" | grep -Eq 'flags=.*runtime' || fail "App does not have hardened runtime enabled."
-  if print -r -- "$details" | grep -Fq 'Signature=adhoc'; then
+  # Consume all metadata: grep -q can exit early and give zsh print SIGPIPE,
+  # turning a valid signature into a failure under pipefail.
+  print -r -- "$details" | grep -Fx "Authority=$2" >/dev/null || fail "App is not signed by the configured Developer ID identity."
+  print -r -- "$details" | grep -E 'flags=.*runtime' >/dev/null || fail "App does not have hardened runtime enabled."
+  if print -r -- "$details" | grep -F 'Signature=adhoc' >/dev/null; then
     fail "App has an ad-hoc signature."
   fi
   return 0

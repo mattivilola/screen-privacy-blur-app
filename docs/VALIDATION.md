@@ -35,3 +35,10 @@ Validate both architectures with `lipo`, inspect the bundle's plist/entitlements
 Automated checks can verify state transitions and image-lifecycle rules, but they do not establish macOS TCC behavior, protected-content behavior, real screen-capture performance, or visual quality. Record actual hardware results here before making those claims. Local ad-hoc app signatures may be verified separately.
 
 Live camera checks, energy profiling, and credentialed distribution verification remain manual until recorded here with actual evidence. A successful CI run verifies source builds and tests; it does not establish real-world privacy or performance guarantees.
+
+### 0.2.0 checks, 2026-10-22
+
+- The user tested the updated local build outdoors and confirmed that it uncovers while facing the camera, covers when looking away, and uncovers on returning. This is one reported outdoor setup, not a measurement of accuracy across all lighting conditions.
+- All 44 Swift tests passed on the release Mac outside the restricted command sandbox. GitHub CI passed for the initial 0.2.0 source commit, `e6cd43f`.
+- The release signing guard reproduced a false rejection of valid hardened-runtime metadata caused by an early-closing `grep -q` pipeline. Its regression test now includes long signature metadata and an ad-hoc signature with otherwise valid fields.
+- This check did not repeat the complete hardware matrix, energy profiling, a second-Mac download test, or the interactive Sparkle upgrade path. Signing, notarization, feed, and artifact verification results are retained with the local release artifacts.

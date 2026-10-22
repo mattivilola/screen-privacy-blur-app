@@ -15,6 +15,16 @@ security() { print -r -- "  1) TESTHASH \"$identity\""; }
 
 assert_developer_id_identity_available "$identity"
 assert_release_signed_app /fake/app "$identity"
+# Real verbose signatures contain substantial metadata after the matched lines.
+# With pipefail, grep -q can close early and make zsh print fail with SIGPIPE.
+for index in {1..400}; do
+  signature_details+=$'\n'"Sealed metadata record $index: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+done
+assert_release_signed_app /fake/app "$identity"
+signature_details+=$'\nSignature=adhoc'
+if (assert_release_signed_app /fake/app "$identity") >/dev/null 2>&1; then
+  fail "Ad-hoc signature with otherwise valid metadata incorrectly accepted."
+fi
 if (assert_developer_id_identity_available 'Apple Development: Test') >/dev/null 2>&1; then
   fail "Development identity incorrectly accepted."
 fi

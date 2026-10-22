@@ -57,7 +57,7 @@ enum DashboardFormatting {
             break
         default:
             return AttentionMeterReading(statusText: "\(analysis.faces.count) faces", tone: .alert, ratio: nil,
-                                         detail: "Covered: only one viewer can uncover the screen")
+                                         detail: "Screen covered: only one viewer can uncover it")
         }
 
         let limits = AttentionLimits(tolerance: tolerance)
@@ -83,6 +83,7 @@ enum DashboardFormatting {
     private static func lightingHint(_ lighting: LightingCondition, normal: String) -> String {
         switch lighting {
         case .bright: "Bright light — light assist is trying to find you"
+        case .backlit: "Bright background — light assist is lifting shadows"
         case .dark: "Low light — add light in front of you"
         case .normal: normal
         }

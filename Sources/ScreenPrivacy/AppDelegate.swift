@@ -317,11 +317,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Names harsh lighting as the reason when no face was found.
     private static func coveredStatus(for analysis: FrameAnalysis) -> String {
-        guard analysis.faces.isEmpty else { return "Covered · look toward the camera" }
+        guard analysis.faces.isEmpty else { return "Screen covered · look toward the camera" }
         switch analysis.lighting {
-        case .bright: return "Covered · too bright to see you"
-        case .dark: return "Covered · too dark to see you"
-        case .normal: return "Covered · look toward the camera"
+        case .bright: return "Screen covered · no face in bright light"
+        case .backlit: return "Screen covered · no face against bright background"
+        case .dark: return "Screen covered · no face in low light"
+        case .normal: return "Screen covered · no face detected"
         }
     }
 

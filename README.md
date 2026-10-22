@@ -16,7 +16,7 @@ A small native macOS menu bar app that covers your displays when you look away a
 
 ## Use
 
-1. Install a signed, notarized DMG from [GitHub Releases](https://github.com/mattivilola/screen-privacy-blur-app/releases) when one is available, or build and open the app using the commands below.
+1. Download the free, signed and notarized app from the [latest release](https://github.com/mattivilola/screen-privacy-blur-app/releases/latest), or build the MIT-licensed open source app using the commands below.
 2. Choose **Enable protection** (or press **⌥⌘P**) and allow camera access.
 3. Face the camera. The screen uncovers after steady attention is detected.
 4. Use the eye icon in the menu bar to pause protection, change settings, or quit.
@@ -90,9 +90,9 @@ Use the macOS lock screen when you need access control or dependable concealment
 
 ## Performance approach
 
-The app requests 640×480 camera capture (or the low preset as a fallback) and a 4 FPS camera stream where supported, then runs face detection at most roughly 4 times per second on a serial utility queue. Late frames are dropped. Each cover capture performs one still capture per display, scales it to a longest edge of 1600 pixels, blurs it once, and reuses the result until uncovering. There is no screen-capture loop or per-frame screen redraw. Camera hardware, snapshot creation, and the compositor still consume power. CPU, memory, latency, and battery claims have not yet been measured.
+The app requests 1280×720 camera capture (falling back to 640×480 or the low preset) and a 4 FPS camera stream where supported, then runs face detection at most roughly 4 times per second on a serial utility queue. Late frames are dropped. Each cover capture performs one still capture per display, scales it to a longest edge of 1600 pixels, blurs it once, and reuses the result until uncovering. There is no screen-capture loop or per-frame screen redraw. Camera hardware, snapshot creation, and the compositor still consume power. CPU, memory, latency, and battery claims have not yet been measured.
 
-Backlight and direct sun can hide a face from the camera, and the built-in camera offers no exposure controls. When a frame has no face or only a low-confidence one, the app re-checks that same frame once with a locally brightened or softened copy (lifting shadows for a backlit silhouette, taming highlights for a washed-out face) and keeps whichever result finds more faces or is more confident. It never hides a face found by the normal pass, and it is skipped when the first pass is already conclusive. The adjusted copy exists only in memory for that check; frames are still never saved or sent anywhere. The Live check meter notes when this light assist helped.
+Lighting adjustment is automatic indoors and outdoors. The app enables continuous auto-exposure and white balance when the camera supports them, with center exposure metering where available. If a frame has no face or no usable head direction, it tries up to two corrected copies of that same frame, stopping when detection is conclusive. Shadow lift and highlight reduction adapt to the measured center brightness and highlight coverage; a shaded center against a bright background is recognized as backlight. A correction that recently worked is tried first. Retries preserve the number of faces already detected and keep the same confidence threshold and attention delays. When normal detection works, the extra passes are skipped. Corrected images exist only in memory; frames are never saved or sent anywhere. The Live check meter notes when light assist helped. Very dark or clipped camera images can still lack enough detail to detect a face.
 
 The detection pipeline deliberately uses face rectangles with head angles instead of detailed eye landmarks or a separate neural model. Tolerance adjusts yaw (12–35°), pitch (12–30°), and look-away delay (0.35–1.25 seconds). Returning requires a narrower head-angle range and 0.35 seconds of steady attention, quantized by the frame cadence.
 

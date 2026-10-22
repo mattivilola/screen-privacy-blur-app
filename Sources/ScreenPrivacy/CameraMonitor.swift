@@ -38,7 +38,6 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var lastAnalysis: TimeInterval = 0
     private var ciContext: CIContext?
     private var preferredAssist: LightAssist?
-    private var nextAssistIndex = 0
     var preferredDeviceID: String?
     private let request: VNDetectFaceRectanglesRequest = {
         let request = VNDetectFaceRectanglesRequest()
@@ -48,24 +47,24 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     /// Software re-exposures for frames where the face is too backlit or washed out
     /// to detect. Built-in cameras expose no exposure controls, so this is done on
-    /// the pixel buffer. At most one runs per frame to keep CPU bounded.
+    /// the pixel buffer. At most two run, only when the normal pass is unclear.
     private enum LightAssist: CaseIterable {
         /// Backlit silhouette: open up shadows.
         case liftShadows
         /// Washed-out face in direct sun: pull highlights down.
         case tameHighlights
 
-        func apply(to image: CIImage) -> CIImage {
+        func apply(to image: CIImage, adjustment: LightAssistAdjustment) -> CIImage {
             switch self {
             case .liftShadows:
                 return image
                     .applyingFilter("CIHighlightShadowAdjust",
                                     parameters: ["inputShadowAmount": 1.0, "inputHighlightAmount": 0.6])
-                    .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 0.8])
-                    .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.1])
+                    // Lift dark midtones without blowing out the bright background.
+                    .applyingFilter("CIGammaAdjust", parameters: ["inputPower": adjustment.shadowGamma])
             case .tameHighlights:
                 return image
-                    .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -1.0])
+                    .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: adjustment.highlightEV])
                     .applyingFilter("CIHighlightShadowAdjust", parameters: ["inputHighlightAmount": 0.3])
                     .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.25])
             }
@@ -112,13 +111,16 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 }
                 let capture = AVCaptureSession()
                 capture.beginConfiguration()
-                capture.sessionPreset = capture.canSetSessionPreset(.vga640x480) ? .vga640x480 : .low
                 let input = try AVCaptureDeviceInput(device: camera)
                 guard capture.canAddInput(input) else {
                     deliver(.unavailable("Camera is unavailable"))
                     return
                 }
                 capture.addInput(input)
+                // Check presets with the selected camera attached so low-resolution
+                // external cameras keep their supported fallback.
+                capture.sessionPreset = capture.canSetSessionPreset(.hd1280x720) ? .hd1280x720
+                    : (capture.canSetSessionPreset(.vga640x480) ? .vga640x480 : .low)
                 let output = AVCaptureVideoDataOutput()
                 output.alwaysDiscardsLateVideoFrames = true
                 output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:
@@ -134,6 +136,15 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 // Hardware throttling: request 4 FPS if supported; otherwise throttle sensor
                 // to the lowest supported frame rate (longest frame duration) to save battery.
                 try camera.lockForConfiguration()
+                if camera.isExposureModeSupported(.continuousAutoExposure) {
+                    camera.exposureMode = .continuousAutoExposure
+                    if camera.isExposurePointOfInterestSupported {
+                        camera.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    }
+                }
+                if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                    camera.whiteBalanceMode = .continuousAutoWhiteBalance
+                }
                 if let lowestRange = camera.activeFormat.videoSupportedFrameRateRanges.min(by: { $0.minFrameRate < $1.minFrameRate }) {
                     if lowestRange.minFrameRate <= 4 && lowestRange.maxFrameRate >= 4 {
                         let duration = CMTime(value: 1, timescale: 4)
@@ -173,7 +184,6 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         lastAnalysis = 0
         ciContext = nil
         preferredAssist = nil
-        nextAssistIndex = 0
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
@@ -193,12 +203,13 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 var chosen = primary
                 var usedLightAssist = false
                 if !FaceDetectionMerge.isConclusive(primary) {
-                    let assisted = lightAssistedFaces(from: buffer)
+                    let assisted = lightAssistedFaces(from: buffer, lighting: lighting.condition,
+                                                      adjustment: lighting.adjustment, primary: primary)
                     chosen = FaceDetectionMerge.preferred(primary, assisted)
                     usedLightAssist = chosen == assisted && FaceDetectionMerge.isConclusive(assisted)
                 }
                 sink(.frame(FrameAnalysis(faces: FaceDetectionMerge.poses(chosen), time: now,
-                                          lighting: lighting, usedLightAssist: usedLightAssist)))
+                                          lighting: lighting.condition, usedLightAssist: usedLightAssist)))
             } catch {
                 sink(.unavailable("Attention detection is unavailable"))
             }
@@ -215,40 +226,47 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    /// Runs one re-exposed detection pass. A variant that recently worked is
-    /// reused; otherwise variants alternate frame by frame. A failed pass is
-    /// not fatal: the primary result still stands.
-    private func lightAssistedFaces(from buffer: CVPixelBuffer) -> [DetectedFace] {
-        let variants = LightAssist.allCases
-        let variant = preferredAssist ?? variants[nextAssistIndex % variants.count]
+    /// Try the likely correction first, then the other correction on this same
+    /// frame if needed. Alternating across frames can repeatedly interrupt the
+    /// steady evidence needed to uncover. Never discard primary face evidence.
+    private func lightAssistedFaces(from buffer: CVPixelBuffer, lighting: LightingCondition,
+                                    adjustment: LightAssistAdjustment, primary: [DetectedFace]) -> [DetectedFace] {
+        let first = preferredAssist ?? (lighting == .bright ? .tameHighlights : .liftShadows)
+        let variants = [first] + LightAssist.allCases.filter { $0 != first }
         let context = ciContext ?? CIContext(options: [.cacheIntermediates: false])
         ciContext = context
-
-        let image = variant.apply(to: CIImage(cvPixelBuffer: buffer))
-        let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [.ciContext: context])
-        let faces = (try? detectFaces(with: handler)) ?? []
-        if FaceDetectionMerge.isConclusive(faces) {
-            preferredAssist = variant
-        } else {
-            preferredAssist = nil
-            nextAssistIndex = ((variants.firstIndex(of: variant) ?? 0) + 1) % variants.count
+        var chosen = primary
+        for variant in variants {
+            let image = variant.apply(to: CIImage(cvPixelBuffer: buffer), adjustment: adjustment)
+            let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [.ciContext: context])
+            let faces = (try? detectFaces(with: handler)) ?? []
+            chosen = FaceDetectionMerge.preferred(chosen, faces)
+            if FaceDetectionMerge.isConclusive(chosen) {
+                preferredAssist = variant
+                return chosen
+            }
         }
-        return faces
+        preferredAssist = nil
+        return chosen
     }
 
-    /// Samples every 8th luma pixel; a full pass over a 640x480 frame is not needed
+    /// Samples every 8th luma pixel; a full pass over the frame is not needed
     /// to tell sunlit or dark scenes apart.
-    private static func lighting(of buffer: CVPixelBuffer) -> LightingCondition {
-        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return .normal }
+    private static func lighting(of buffer: CVPixelBuffer)
+        -> (condition: LightingCondition, adjustment: LightAssistAdjustment) {
+        let fallback: (LightingCondition, LightAssistAdjustment) =
+            (.normal, LightAssistAdjustment(centerMeanLuma: 0.4, highlightFraction: 0))
+        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return fallback }
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return .normal }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return fallback }
 
         let width = CVPixelBufferGetWidthOfPlane(buffer, 0)
         let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
         let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
         let step = 8
         var sum = 0.0, highlights = 0.0, shadows = 0.0, count = 0.0
+        var centerSum = 0.0, centerCount = 0.0
         for y in stride(from: 0, to: height, by: step) {
             let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: UInt8.self)
             for x in stride(from: 0, to: width, by: step) {
@@ -257,10 +275,17 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 if luma >= 0.92 { highlights += 1 }
                 if luma <= 0.08 { shadows += 1 }
                 count += 1
+                if x >= width / 4, x < width * 3 / 4, y >= height / 4, y < height * 3 / 4 {
+                    centerSum += luma
+                    centerCount += 1
+                }
             }
         }
-        guard count > 0 else { return .normal }
-        return LightingCondition.classify(meanLuma: sum / count, highlightFraction: highlights / count,
-                                          shadowFraction: shadows / count)
+        guard count > 0 else { return fallback }
+        let center = centerCount > 0 ? centerSum / centerCount : sum / count
+        let condition = LightingCondition.classify(meanLuma: sum / count, highlightFraction: highlights / count,
+                                          shadowFraction: shadows / count,
+                                          centerMeanLuma: center)
+        return (condition, LightAssistAdjustment(centerMeanLuma: center, highlightFraction: highlights / count))
     }
 }

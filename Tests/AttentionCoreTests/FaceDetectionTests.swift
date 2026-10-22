@@ -9,6 +9,58 @@ final class FaceDetectionTests: XCTestCase {
         XCTAssertTrue(FaceDetectionMerge.isConclusive([face(0.1), face(0.1)]))
     }
 
+    func testConfidentRectangleWithoutUsablePoseStillNeedsAssist() {
+        for angle: Double? in [nil, .nan, .infinity] {
+            XCTAssertFalse(FaceDetectionMerge.isConclusive([
+                DetectedFace(confidence: 0.99, yaw: angle, pitch: 0)
+            ]))
+            XCTAssertFalse(FaceDetectionMerge.isConclusive([
+                DetectedFace(confidence: 0.99, yaw: 0, pitch: angle)
+            ]))
+        }
+        XCTAssertFalse(FaceDetectionMerge.isConclusive([face(.nan)]))
+        XCTAssertFalse(FaceDetectionMerge.isConclusive([face(.infinity)]))
+    }
+
+    func testAssistCanRecoverPoseWithoutLoweringConfidenceThreshold() {
+        let noPose = [DetectedFace(confidence: 0.99, yaw: nil, pitch: nil)]
+        let usable = [face(0.75)]
+        let tooWeak = [face(0.69)]
+        XCTAssertEqual(FaceDetectionMerge.preferred(noPose, usable), usable)
+        XCTAssertEqual(FaceDetectionMerge.preferred(usable, noPose), usable)
+        XCTAssertEqual(FaceDetectionMerge.preferred(noPose, tooWeak), noPose)
+        var state = AttentionState()
+        let recovered = FaceDetectionMerge.poses(FaceDetectionMerge.preferred(noPose, usable))
+        XCTAssertTrue(state.update(faces: recovered, at: 0))
+        XCTAssertFalse(state.update(faces: recovered, at: 0.5))
+        // A second detected person must still override a usable single pose.
+        let multiple = [face(0.2), face(0.2)]
+        XCTAssertTrue(state.update(faces: FaceDetectionMerge.poses(
+            FaceDetectionMerge.preferred(usable, multiple)), at: 0.75))
+    }
+
+    func testAutomaticLightAssistAdaptsAndStaysBounded() {
+        let shaded = LightAssistAdjustment(centerMeanLuma: 0.1, highlightFraction: 0.2)
+        let indoor = LightAssistAdjustment(centerMeanLuma: 0.5, highlightFraction: 0.01)
+        let sunny = LightAssistAdjustment(centerMeanLuma: 0.85, highlightFraction: 0.6)
+        XCTAssertLessThan(shaded.shadowGamma, indoor.shadowGamma)
+        XCTAssertLessThan(sunny.highlightEV, indoor.highlightEV)
+        for value in [-10.0, 0, 0.5, 1, 10, .nan, .infinity] {
+            let adjustment = LightAssistAdjustment(centerMeanLuma: value, highlightFraction: value)
+            XCTAssertTrue((0.4...0.85).contains(adjustment.shadowGamma))
+            XCTAssertTrue((-1.5 ... -0.4).contains(adjustment.highlightEV))
+        }
+    }
+
+    func testShadedCenterAgainstSkyIsBacklitEvenWithNormalFrameAverage() {
+        XCTAssertEqual(LightingCondition.classify(meanLuma: 0.5, highlightFraction: 0.2,
+            shadowFraction: 0.1, centerMeanLuma: 0.2), .backlit)
+        XCTAssertEqual(LightingCondition.classify(meanLuma: 0.5, highlightFraction: 0.01,
+            shadowFraction: 0.1, centerMeanLuma: 0.4), .normal)
+        XCTAssertEqual(LightingCondition.classify(meanLuma: 0.5, highlightFraction: 0.01,
+            shadowFraction: 0.1, centerMeanLuma: 0.2), .normal)
+    }
+
     func testPreferredNeverLetsALaterPassHideAFace() {
         let one = [face(0.9)]
         let two = [face(0.4), face(0.4)]

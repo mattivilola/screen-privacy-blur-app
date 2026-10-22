@@ -1,5 +1,11 @@
 # Screen Privacy releases
 
+## 0.2.0
+
+- Automatic lighting correction adapts shadow lift and highlight reduction for indoor light, sun, and shaded faces against bright backgrounds. Cameras use continuous exposure and white balance where supported, with 720p capture when available.
+- Unclear frames can try both light corrections immediately, and confident face rectangles without usable head direction now receive a retry too.
+- Status text explicitly says the screen is covered and distinguishes missing face detection from camera obstruction.
+
 ## 0.1.1
 
 - Redesigned menu with a status header, grouped sections, and icons.

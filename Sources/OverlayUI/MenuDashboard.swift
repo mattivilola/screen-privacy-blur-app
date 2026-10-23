@@ -248,18 +248,22 @@ private final class MeterBarView: NSView {
 @MainActor
 public final class AttentionMeterView: NSView {
     private let statusField = makeLabel(size: 12, weight: .medium,
-                                        frame: NSRect(x: 130, y: 44, width: MenuDashboard.width - 130 - MenuDashboard.inset, height: 18),
+                                        frame: NSRect(x: 130, y: 60, width: MenuDashboard.width - 130 - MenuDashboard.inset, height: 18),
                                         alignment: .right)
     private let bar: MeterBarView
     private let detailField = makeLabel(size: 11, color: .secondaryLabelColor,
-                                        frame: NSRect(x: MenuDashboard.inset, y: 8, width: MenuDashboard.contentWidth, height: 16))
+                                        frame: NSRect(x: MenuDashboard.inset, y: 8, width: MenuDashboard.contentWidth, height: 32))
     private var current: AttentionMeterReading?
 
     public init(recoveryFraction: Double) {
-        bar = MeterBarView(frame: NSRect(x: MenuDashboard.inset, y: 28, width: MenuDashboard.contentWidth, height: 10),
+        bar = MeterBarView(frame: NSRect(x: MenuDashboard.inset, y: 44, width: MenuDashboard.contentWidth, height: 10),
                            recoveryFraction: recoveryFraction)
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuDashboard.width, height: 70))
-        addSubview(makeLabel("Head direction", frame: NSRect(x: MenuDashboard.inset, y: 44, width: 110, height: 18)))
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuDashboard.width, height: 86))
+        detailField.maximumNumberOfLines = 2
+        detailField.lineBreakMode = .byWordWrapping
+        detailField.cell?.wraps = true
+        detailField.cell?.isScrollable = false
+        addSubview(makeLabel("Head direction", frame: NSRect(x: MenuDashboard.inset, y: 60, width: 110, height: 18)))
         addSubview(statusField)
         addSubview(bar)
         addSubview(detailField)
@@ -279,5 +283,6 @@ public final class AttentionMeterView: NSView {
         detailField.stringValue = reading.detail
         bar.update(ratio: reading.ratio, tone: reading.tone)
         setAccessibilityValue("\(reading.statusText). \(reading.detail)")
+        toolTip = "\(reading.statusText)\n\(reading.detail)"
     }
 }

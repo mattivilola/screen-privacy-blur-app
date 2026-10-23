@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import OverlayUI
 
 final class MenuDashboardTests: XCTestCase {
@@ -25,5 +26,24 @@ final class MenuDashboardTests: XCTestCase {
         XCTAssertEqual(AttentionMeterScale.tone(forRatio: 1, recoveryFraction: recovery), .caution)
         XCTAssertEqual(AttentionMeterScale.tone(forRatio: 1.000_001, recoveryFraction: recovery), .alert)
         XCTAssertEqual(AttentionMeterScale.tone(forRatio: 3, recoveryFraction: recovery), .alert)
+    }
+
+    @MainActor
+    func testLongLightingAdviceFitsInTheDashboard() async throws {
+        let view = AttentionMeterView(recoveryFraction: 0.8)
+        for advice in ["Shade the lens or turn the camera away from bright light.",
+                       "Turn the camera away from the bright background, or shade the lens."] {
+            view.update(AttentionMeterReading(statusText: "Possible sun glare", tone: .alert,
+                                             ratio: nil, detail: advice))
+            let label = try XCTUnwrap(view.subviews.compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == advice })
+            let font = try XCTUnwrap(label.font)
+            let textBounds = (advice as NSString).boundingRect(
+                with: NSSize(width: label.bounds.width - 4, height: 1000),
+                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
+            XCTAssertLessThanOrEqual(ceil(textBounds.height), label.bounds.height)
+            XCTAssertTrue(view.bounds.contains(label.frame))
+            XCTAssertEqual(view.toolTip, "Possible sun glare\n\(advice)")
+        }
     }
 }

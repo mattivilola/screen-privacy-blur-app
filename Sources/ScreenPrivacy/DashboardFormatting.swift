@@ -51,7 +51,7 @@ enum DashboardFormatting {
 
         switch analysis.faces.count {
         case 0:
-            return AttentionMeterReading(statusText: "No face detected", tone: .alert, ratio: nil,
+            return AttentionMeterReading(statusText: missingFaceStatus(analysis.lighting), tone: .alert, ratio: nil,
                                          detail: lightingHint(analysis.lighting, normal: "Face the camera"))
         case 1:
             break
@@ -63,7 +63,9 @@ enum DashboardFormatting {
         let limits = AttentionLimits(tolerance: tolerance)
         let face = analysis.faces[0]
         guard let ratio = limits.ratio(for: face) else {
-            return AttentionMeterReading(statusText: "Face unclear", tone: .caution, ratio: nil,
+            let status = analysis.lighting == .bright ? "Possible sun glare"
+                : (analysis.lighting == .backlit ? "Strong backlight" : "Face unclear")
+            return AttentionMeterReading(statusText: status, tone: .caution, ratio: nil,
                                          detail: lightingHint(analysis.lighting, normal: "Hold still facing the camera"))
         }
 
@@ -80,10 +82,19 @@ enum DashboardFormatting {
         return AttentionMeterReading(statusText: status, tone: tone, ratio: ratio, detail: detail)
     }
 
+    private static func missingFaceStatus(_ lighting: LightingCondition) -> String {
+        switch lighting {
+        case .bright: "Possible sun glare"
+        case .backlit: "Strong backlight"
+        case .dark: "Too dark to see you"
+        case .normal: "No face detected"
+        }
+    }
+
     private static func lightingHint(_ lighting: LightingCondition, normal: String) -> String {
         switch lighting {
-        case .bright: "Bright light — light assist is trying to find you"
-        case .backlit: "Bright background — light assist is lifting shadows"
+        case .bright: "Shade the lens or turn the camera away from bright light."
+        case .backlit: "Turn the camera away from the bright background, or shade the lens."
         case .dark: "Low light — add light in front of you"
         case .normal: normal
         }

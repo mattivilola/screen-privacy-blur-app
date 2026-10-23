@@ -90,7 +90,8 @@ public enum LightingCondition: Sendable, Equatable {
     /// Inputs are normalized 0...1 luma statistics of the frame. Non-finite
     /// inputs are not evidence of a lighting problem and classify as `.normal`.
     public static func classify(meanLuma: Double, highlightFraction: Double,
-                                shadowFraction: Double, centerMeanLuma: Double? = nil) -> LightingCondition {
+                                shadowFraction: Double, centerMeanLuma: Double? = nil,
+                                lumaStandardDeviation: Double? = nil) -> LightingCondition {
         guard meanLuma.isFinite, highlightFraction.isFinite, shadowFraction.isFinite else { return .normal }
         // A shaded viewer against sky can have a normally exposed frame overall.
         // This is a lighting hint, never evidence of a person or a covered lens.
@@ -99,6 +100,12 @@ public enum LightingCondition: Sendable, Equatable {
             return .backlit
         }
         if highlightFraction > 0.30 || meanLuma > 0.75 { return .bright }
+        // Veiling glare can wash out contrast without clipping pixels to white.
+        // This indicates difficult bright light, not proof of direct sunlight.
+        if let deviation = lumaStandardDeviation, deviation.isFinite,
+           deviation >= 0, deviation < 0.08, meanLuma > 0.60 {
+            return .bright
+        }
         if meanLuma < 0.15 || shadowFraction > 0.60 { return .dark }
         return .normal
     }

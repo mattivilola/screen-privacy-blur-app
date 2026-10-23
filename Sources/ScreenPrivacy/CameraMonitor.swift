@@ -295,12 +295,14 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
         let step = 8
         var sum = 0.0, highlights = 0.0, shadows = 0.0, count = 0.0
+        var sumSquares = 0.0
         var centerSum = 0.0, centerCount = 0.0
         for y in stride(from: 0, to: height, by: step) {
             let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: UInt8.self)
             for x in stride(from: 0, to: width, by: step) {
                 let luma = Double(row[x]) / 255
                 sum += luma
+                sumSquares += luma * luma
                 if luma >= 0.92 { highlights += 1 }
                 if luma <= 0.08 { shadows += 1 }
                 count += 1
@@ -312,9 +314,10 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         guard count > 0 else { return fallback }
         let center = centerCount > 0 ? centerSum / centerCount : sum / count
+        let deviation = sqrt(max(0, sumSquares / count - pow(sum / count, 2)))
         let condition = LightingCondition.classify(meanLuma: sum / count, highlightFraction: highlights / count,
                                           shadowFraction: shadows / count,
-                                          centerMeanLuma: center)
+                                          centerMeanLuma: center, lumaStandardDeviation: deviation)
         return (condition, LightAssistAdjustment(centerMeanLuma: center, highlightFraction: highlights / count))
     }
 }

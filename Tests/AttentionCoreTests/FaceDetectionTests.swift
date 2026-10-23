@@ -126,6 +126,20 @@ final class FaceDetectionTests: XCTestCase {
         XCTAssertEqual(LightingCondition.classify(meanLuma: 0.01, highlightFraction: 0, shadowFraction: .nan), .normal)
     }
 
+    func testBrightWashedOutFrameIsRecognizedWithoutClippedHighlights() {
+        XCTAssertEqual(LightingCondition.classify(meanLuma: 0.65, highlightFraction: 0.01,
+            shadowFraction: 0, lumaStandardDeviation: 0.04), .bright)
+        // Low contrast alone is not a bright-light problem.
+        XCTAssertEqual(LightingCondition.classify(meanLuma: 0.5, highlightFraction: 0.01,
+            shadowFraction: 0, lumaStandardDeviation: 0.04), .normal)
+        XCTAssertEqual(LightingCondition.classify(meanLuma: 0.65, highlightFraction: 0.01,
+            shadowFraction: 0, lumaStandardDeviation: 0.2), .normal)
+        for invalid in [Double.nan, .infinity, -0.1] {
+            XCTAssertEqual(LightingCondition.classify(meanLuma: 0.65, highlightFraction: 0.01,
+                shadowFraction: 0, lumaStandardDeviation: invalid), .normal)
+        }
+    }
+
     private func face(_ confidence: Double) -> DetectedFace {
         DetectedFace(confidence: confidence, yaw: 0, pitch: 0)
     }

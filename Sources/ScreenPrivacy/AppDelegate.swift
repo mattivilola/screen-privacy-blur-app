@@ -10,6 +10,23 @@ import Sparkle
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults = UserDefaults.standard
     private let camera = CameraMonitor()
+    private var alarm = AlarmState()
+    private var tamperEvidence = AlarmTamperEvidence()
+    private let tamperToggleItem = NSMenuItem(title: "Alarm on closed lid or camera loss", action: #selector(toggleTamperAlarm), keyEquivalent: "")
+    private let alarmAudio = AlarmAudio()
+    private let hardwareMotion = HardwareMotionMonitor()
+    private let keepAwake = AlarmKeepAwake()
+    private let alarmToggleItem = NSMenuItem(title: "Alarm mode", action: #selector(toggleAlarmMode), keyEquivalent: "")
+    private let alarmInfoItem = NSMenuItem()
+    private let sensorInfoItem = NSMenuItem()
+    private let powerInfoItem = NSMenuItem()
+    private var alarmTimer: Timer?
+    private var alarmTestTimer: Timer?
+    private var alarmTesting = false
+    private var alarmFailure: String?
+    private var alarmRequested = false
+    private var alarmEnabled: Bool { alarm.phase != .off }
+    private var sirenLevel: Double { min(max(defaults.object(forKey: "sirenLevel") as? Double ?? 1, 0.1), 1) }
     private let cover = PrivacyCover()
     private var attention = AttentionState()
     private var statusItem: NSStatusItem!
@@ -53,6 +70,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         attention.tolerance = defaults.object(forKey: "tolerance") as? Double ?? 0.5
         cover.message = defaults.string(forKey: "coverMessage") ?? ""
         cover.blurStrength = blurStrength
+        alarm.sensitivity = defaults.object(forKey: "alarmSensitivity") as? Double ?? 0.5
+        alarm.countdown = defaults.object(forKey: "alarmCountdown") as? Double ?? 10
+        alarmAudio.recoverPreviousVolume()
+        keepAwake.onStatusChange = { [weak self] in self?.refreshAlarm() }
+        keepAwake.onSafetyStop = { [weak self] reason in
+            self?.disarmAlarm()
+            self?.updateStatus("Alarm stopped · \(reason)", tone: .alert)
+        }
         buildMenu()
         observeLifecycle()
         registerGlobalHotKey()
@@ -60,6 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if CommandLine.arguments.contains("--smoke-test") {
             print("Screen Privacy launched; menu ready; camera not started")
             NSApp.terminate(nil)
+            return
+        }
+        if CommandLine.arguments.contains("--menu-test") {
+            cover.captureAllowed = false
             return
         }
         updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -93,6 +122,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let meterItem = NSMenuItem()
         meterItem.view = attentionMeter
         menu.addItem(meterItem)
+        menu.addItem(.separator())
+
+        menu.addItem(.sectionHeader(title: "Alarm"))
+        alarmToggleItem.target = self
+        alarmToggleItem.image = Self.symbol("bell.badge")
+        menu.addItem(alarmToggleItem)
+        alarmInfoItem.isEnabled = false
+        alarmInfoItem.title = "Off · arms after you look away"
+        menu.addItem(alarmInfoItem)
+        let settingsItem = NSMenuItem(title: "Alarm settings", action: nil, keyEquivalent: "")
+        let settings = NSMenu(title: "Alarm settings")
+        settingsItem.submenu = settings
+        sensorInfoItem.title = "Motion sensor checked when Alarm mode starts"
+        sensorInfoItem.isEnabled = false; settings.addItem(sensorInfoItem)
+        powerInfoItem.title = "Keep awake starts with Alarm mode"
+        powerInfoItem.isEnabled = false; settings.addItem(powerInfoItem)
+        settings.addItem(.separator())
+        let sensitivity = NSMenuItem()
+        sensitivity.view = SettingSliderView(title: "Sensitivity", leftLabel: "Less sensitive", rightLabel: "More sensitive",
+            accessibilityLabel: "Alarm movement sensitivity", toolTip: "Higher sensitivity detects smaller scene or sensor movements.",
+            value: alarm.sensitivity, describe: { value in
+                SettingReading(valueText: "\(Int(value * 100))", tierName: "Movement", tone: .alert,
+                               detail: "Sustained motion after arming triggers the siren")
+            }, onChange: { [weak self] value in
+                self?.alarm.sensitivity = value; self?.defaults.set(value, forKey: "alarmSensitivity")
+            })
+        settings.addItem(sensitivity)
+        let volume = NSMenuItem()
+        volume.view = SettingSliderView(title: "Siren level", leftLabel: "Quiet", rightLabel: "Maximum",
+            accessibilityLabel: "Siren loudness", toolTip: "Built-in speaker volume is temporarily set to 100%; this slider controls siren loudness. Previous speaker settings return on disarm.",
+            value: sirenLevel, describe: { value in
+                SettingReading(valueText: "\(Int(max(0.1, value) * 100))%", tierName: "Speakers at 100%", tone: .alert,
+                               detail: "Original volume and mute return on disarm")
+            }, onChange: { [weak self] value in self?.defaults.set(max(0.1, value), forKey: "sirenLevel") })
+        settings.addItem(volume)
+        let countdown = NSMenuItem()
+        countdown.view = SettingSliderView(title: "Arm countdown", leftLabel: "3 seconds", rightLabel: "30 seconds",
+            accessibilityLabel: "Alarm arming countdown", toolTip: "Time to leave before movement detection is armed.",
+            value: (alarm.countdown - 3) / 27, describe: { value in
+                SettingReading(valueText: "\(Int((3 + value * 27).rounded())) s", tierName: "After looking away", tone: .caution,
+                               detail: "Looking back cancels the countdown")
+            }, onChange: { [weak self] value in
+                let seconds = (3 + value * 27).rounded()
+                self?.alarm.countdown = seconds; self?.defaults.set(seconds, forKey: "alarmCountdown")
+            })
+        settings.addItem(countdown)
+        tamperToggleItem.target = self
+        tamperToggleItem.state = tamperAlarmEnabled ? .on : .off
+        tamperToggleItem.toolTip = "Once armed, a closed lid, missing camera frames, or a black/white camera image triggers the alarm after a short grace period. Camera faults can also trigger it."
+        settings.addItem(tamperToggleItem)
+        let test = NSMenuItem(title: "Test siren and flashing for 3 seconds", action: #selector(testAlarm), keyEquivalent: "")
+        test.target = self; settings.addItem(test)
+        let power = NSMenuItem(title: "Allow closed-lid keep awake…", action: #selector(prepareLidClosed), keyEquivalent: "")
+        power.target = self; settings.addItem(power)
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
 
         menu.addItem(.sectionHeader(title: "Detection"))
@@ -168,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggle() {
         guard !permissionPending else { return }
+        disarmAlarm()
         endPreview()
         if enabled {
             enabled = false
@@ -206,13 +291,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         previewTimer?.invalidate()
         previewTimer = nil
         previewID = nil
-        cover.setVisible(protectionCoverVisible)
+        cover.setVisible(protectionCoverVisible || alarm.isLatched || alarmTesting)
         updateStatus(protectionStatus, tone: protectionTone)
     }
 
     private func setCoverVisible(_ visible: Bool) {
         protectionCoverVisible = visible
-        cover.setVisible(visible || previewID != nil)
+        cover.setVisible(visible || previewID != nil || alarm.isLatched || alarmTesting)
     }
 
     @objc private func editMessage() {
@@ -229,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             enabled = true
             defaults.set(true, forKey: "enabled")
             resume()
+            if alarmRequested { alarmRequested = false; beginAlarmMode() }
         case .notDetermined:
             permissionPending = true
             toggleItem.isEnabled = false
@@ -238,10 +324,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.permissionPending = false
                     self.toggleItem.isEnabled = true
                     if granted { self.enableWithPermission() }
-                    else { self.updateStatus("Camera permission required", tone: .alert) }
+                    else { self.alarmRequested = false; self.updateStatus("Camera permission required", tone: .alert) }
                 }
             }
         default:
+            alarmRequested = false
             updateStatus("Camera permission required", tone: .alert)
             let alert = NSAlert()
             alert.messageText = "Allow camera access"
@@ -284,6 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func stopCapture() {
         generation = UUID()
+        alarm.interrupt()
         watchdog?.invalidate()
         watchdog = nil
         lastFrame = nil
@@ -300,16 +388,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 updateStatus("Covered · waiting for fresh frames", tone: .alert)
                 return
             }
+            if lastFrame.map({ analysis.time - $0 > 1 }) == true { alarm.interrupt() }
             lastFrame = analysis.time
             latestAnalysis = analysis
             setCoverVisible(attention.update(faces: analysis.faces, at: analysis.time))
+            if alarmEnabled && !alarmTesting {
+                alarm.observe(watching: !protectionCoverVisible, cameraMotion: analysis.motionScore, at: analysis.time)
+                if let score = analysis.motionScore { alarm.motion(score, source: "camera", at: analysis.time) }
+                refreshAlarm()
+            }
             if protectionCoverVisible {
                 updateStatus(Self.coveredStatus(for: analysis), tone: .caution)
             } else {
                 updateStatus("Protection active", tone: .good)
             }
+        case let .motion(score, time):
+            lastFrame = time
+            guard alarmEnabled, !alarmTesting, ProcessInfo.processInfo.systemUptime - time < 1 else { return }
+            alarm.motion(score, source: "camera", at: time)
+            refreshAlarm()
         case let .unavailable(reason):
             latestAnalysis = nil
+            if !alarm.isLatched { alarm.interrupt() }
             setCoverVisible(attention.unavailable())
             updateStatus("Covered · \(reason)", tone: .alert)
         }
@@ -444,8 +544,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateStatus(_ text: String, tone: DashboardTone) {
         protectionStatus = text
         protectionTone = tone
-        let text = previewID == nil ? text : "Preview · 5 seconds"
-        let tone = previewID == nil ? tone : .balanced
+        let text = alarmEnabled || alarmTesting ? alarmStatus : (previewID == nil ? text : "Preview · 5 seconds")
+        let tone: DashboardTone = alarmEnabled || alarmTesting ? .alert : (previewID == nil ? tone : .balanced)
         guard stateItem.title != text || displayedTone != tone || statusItem.button?.image == nil else { return }
         stateItem.title = text
         displayedTone = tone
@@ -474,8 +574,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func lifecycleChanged() {
         cover.captureAllowed = !suspended
-        if suspended { endPreview() }
+        if sleeping { disarmAlarm() }
+        alarm.interrupt()
+        if suspended {
+            endPreview()
+            if alarmTesting { disarmAlarm() }
+        }
         if enabled { resume() } else { refreshAttentionMeter() }
+        refreshAlarm()
     }
 
     private func observeLifecycle() {
@@ -491,7 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observe(Notification.Name("com.apple.screenIsLocked"), center: distributed) { $0.screenLocked = true; $0.lifecycleChanged() }
         observe(Notification.Name("com.apple.screenIsUnlocked"), center: distributed) { $0.screenLocked = false; $0.lifecycleChanged() }
         observe(NSApplication.didChangeScreenParametersNotification, center: .default) { $0.cover.rebuild() }
-        observe(NSApplication.didBecomeActiveNotification, center: .default) { $0.cover.refreshSnapshotIfNeeded() }
+        observe(NSApplication.didBecomeActiveNotification, center: .default) { $0.cover.refreshSnapshotIfNeeded(); $0.keepAwake.refreshApproval() }
         observe(AVCaptureDevice.wasDisconnectedNotification, center: .default) { app in
             app.updateCameraMenu()
             app.lifecycleChanged()
@@ -623,9 +729,139 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
+        disarmAlarm()
+        keepAwake.terminate()
         endPreview()
         stopCapture()
         setCoverVisible(false)
         for (center, observer) in observers { center.removeObserver(observer) }
     }
+}
+
+
+// MARK: - Alarm mode
+extension AppDelegate {
+    @objc private func toggleAlarmMode() {
+        if alarmEnabled || alarmTesting || alarmRequested { disarmAlarm(); return }
+        if enabled { beginAlarmMode() }
+        else { alarmRequested = true; enableWithPermission() }
+    }
+
+    private func beginAlarmMode() {
+        guard enabled, !suspended else { alarmRequested = false; return }
+        endPreview()
+        alarmFailure = nil
+        alarm.enable()
+        tamperEvidence.reset()
+        hardwareMotion.start { [weak self] score in
+            guard let self, self.alarmEnabled, !self.alarmTesting, !self.sleeping, !self.sessionInactive else { return }
+            self.alarm.motion(score, source: "sensor", at: ProcessInfo.processInfo.systemUptime)
+            self.refreshAlarm()
+        }
+        keepAwake.start()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshAlarm() }
+        }
+        alarmTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        refreshAlarm()
+    }
+
+    private func disarmAlarm() {
+        alarmRequested = false
+        alarm.disable()
+        tamperEvidence.reset()
+        alarmTesting = false
+        alarmTestTimer?.invalidate(); alarmTestTimer = nil
+        alarmTimer?.invalidate(); alarmTimer = nil
+        hardwareMotion.stop()
+        alarmAudio.restore()
+        keepAwake.stop()
+        alarmFailure = nil
+        cover.alarmSounding = false
+        cover.alarmStatus = nil
+        cover.setVisible(protectionCoverVisible || previewID != nil)
+        alarmToggleItem.state = .off
+        alarmInfoItem.title = "Off · arms after you look away"
+        if alarmAudio.restorationPending {
+            updateStatus("Speaker restore pending · retry disarm", tone: .alert)
+        } else { updateStatus(protectionStatus, tone: protectionTone) }
+    }
+
+    private var alarmStatus: String {
+        if let alarmFailure { return "Alarm · \(alarmFailure)" }
+        if alarmTesting { return "ALARM! · 3-second test" }
+        switch alarm.phase {
+        case .off: return "Alarm off"
+        case .waiting: return suspended ? "Alarm waiting · monitoring suspended" : "Alarm mode · face screen, then look away"
+        case let .countdown(until):
+            let remaining = Int(ceil(until - ProcessInfo.processInfo.systemUptime))
+            return remaining > 0 ? "Alarm arms in \(remaining) s" : "Alarm settling · stand clear"
+        case .armed:
+            let fresh = !suspended && lastFrame.map { ProcessInfo.processInfo.systemUptime - $0 <= 1.5 } == true
+            if fresh { return "Alarm armed · monitoring movement" }
+            return hardwareMotion.isMonitoring && !sessionInactive && !sleeping ? "Alarm armed · sensor only" : "Alarm armed · monitoring unavailable"
+        case .alarming: return "ALARM! · disarm from menu or ⌥⌘P"
+        }
+    }
+
+    private func refreshAlarm() {
+        guard alarmEnabled || alarmTesting else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let freshCamera = !suspended && lastFrame.map { now - $0 <= 1.5 } == true
+        if tamperAlarmEnabled, !alarmTesting, !sessionInactive,
+           tamperEvidence.update(armed: alarm.phase == .armed, lidClosed: LidState.isClosed,
+                                 cameraAvailable: freshCamera, obscured: latestAnalysis?.isObscured == true, at: now) {
+            alarm.trigger()
+        }
+        let sounding = alarm.phase == .alarming || alarmTesting
+        if sounding, alarmFailure == nil {
+            do { try alarmAudio.start(volume: sirenLevel) }
+            catch { alarmFailure = error.localizedDescription }
+        }
+        cover.alarmStatus = alarmStatus
+        let canPresent = !sleeping && !sessionInactive && !screenLocked && !screensSleeping
+        cover.alarmSounding = sounding && canPresent
+        if alarm.isLatched || alarmTesting { cover.setVisible(canPresent) }
+        alarmToggleItem.state = alarmEnabled ? .on : .off
+        alarmInfoItem.title = alarmStatus
+        alarmInfoItem.toolTip = "\(hardwareMotion.statusText) · \(keepAwake.statusText)"
+        sensorInfoItem.title = hardwareMotion.statusText
+        powerInfoItem.title = keepAwake.statusText
+        updateStatus(protectionStatus, tone: protectionTone)
+    }
+
+    @objc private func testAlarm() {
+        guard !alarmTesting, !suspended, alarm.phase != .alarming else { return }
+        alarm.interrupt()
+        tamperEvidence.reset()
+        alarmTesting = true
+        alarmFailure = nil
+        refreshAlarm()
+        let timer = Timer(timeInterval: 3, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.alarmTesting = false
+                self.alarm.interrupt()
+                self.tamperEvidence.reset()
+                self.alarmAudio.restore()
+                self.alarmFailure = nil
+                self.cover.alarmSounding = false
+                self.cover.alarmStatus = self.alarmEnabled ? self.alarmStatus : nil
+                self.cover.setVisible(self.protectionCoverVisible || self.previewID != nil || self.alarm.isLatched)
+                self.updateStatus(self.protectionStatus, tone: self.protectionTone)
+            }
+        }
+        alarmTestTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private var tamperAlarmEnabled: Bool { defaults.object(forKey: "alarmOnCameraLoss") as? Bool ?? true }
+    @objc private func toggleTamperAlarm() {
+        defaults.set(!tamperAlarmEnabled, forKey: "alarmOnCameraLoss")
+        tamperToggleItem.state = tamperAlarmEnabled ? .on : .off
+        tamperEvidence.reset()
+    }
+
+    @objc private func prepareLidClosed() { keepAwake.prepareLidClosed() }
 }

@@ -10,11 +10,14 @@ struct FrameAnalysis: Sendable {
     let time: TimeInterval
     let lighting: LightingCondition
     let usedLightAssist: Bool
+    let motionScore: Double?
+    let isObscured: Bool
 }
 
 enum CameraEvent: Sendable {
     case frame(FrameAnalysis)
     case unavailable(String)
+    case motion(Double, TimeInterval)
 }
 
 public struct CameraDevice: Identifiable, Sendable, Equatable {
@@ -38,6 +41,7 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var lastAnalysis: TimeInterval = 0
     private var ciContext: CIContext?
     private var preferredAssist: LightAssist?
+    private var motionEvidence = CameraMotionEvidence()
     var preferredDeviceID: String?
     private let request: VNDetectFaceRectanglesRequest = {
         let request = VNDetectFaceRectanglesRequest()
@@ -160,6 +164,7 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 camera.unlockForConfiguration()
                 session = capture
                 lastAnalysis = 0
+        motionEvidence.reset()
                 capture.startRunning()
                 if !capture.isRunning { deliver(.unavailable("Camera could not start")) }
             } catch {
@@ -182,6 +187,7 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         session = nil
         lastAnalysis = 0
+        motionEvidence.reset()
         ciContext = nil
         preferredAssist = nil
     }
@@ -197,6 +203,10 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             return
         }
         autoreleasepool {
+            let samples = Self.motionSamples(of: buffer)
+            let motion = motionEvidence.score(samples)
+            let mean = samples.isEmpty ? 0.5 : samples.reduce(0, +) / Double(samples.count)
+            let obscured = mean < 0.015 || mean > 0.985
             do {
                 let lighting = Self.lighting(of: buffer)
                 let primary = try detectFaces(with: VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up))
@@ -209,9 +219,28 @@ final class CameraMonitor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     usedLightAssist = chosen == assisted && FaceDetectionMerge.isConclusive(assisted)
                 }
                 sink(.frame(FrameAnalysis(faces: FaceDetectionMerge.poses(chosen), time: now,
-                                          lighting: lighting.condition, usedLightAssist: usedLightAssist)))
+                                          lighting: lighting.condition, usedLightAssist: usedLightAssist, motionScore: motion, isObscured: obscured)))
             } catch {
+                if let motion { sink(.motion(motion, now)) }
                 sink(.unavailable("Attention detection is unavailable"))
+            }
+        }
+    }
+
+    /// A 32 × 24 grid avoids retaining camera frames or doing a full-resolution comparison.
+    private static func motionSamples(of buffer: CVPixelBuffer) -> [Double] {
+        guard CVPixelBufferGetPlaneCount(buffer) > 0 else { return [] }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return [] }
+        let width = CVPixelBufferGetWidthOfPlane(buffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        guard width > 0, height > 0 else { return [] }
+        return (0..<24).flatMap { y in
+            (0..<32).map { x in
+                Double(base.load(fromByteOffset: min(height - 1, y * height / 24) * stride
+                                 + min(width - 1, x * width / 32), as: UInt8.self)) / 255
             }
         }
     }

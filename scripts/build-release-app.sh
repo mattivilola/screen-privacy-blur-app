@@ -28,6 +28,7 @@ mkdir -p "$output_dir"
 swiftpm_args=()
 [[ "${SWIFTPM_DISABLE_SANDBOX:-false}" == "true" ]] && swiftpm_args+=(--disable-sandbox)
 swift build "${swiftpm_args[@]}" --configuration release --product "$EXECUTABLE" --arch arm64 --arch x86_64
+swift build "${swiftpm_args[@]}" --configuration release --product ScreenPrivacyPowerHelper --arch arm64 --arch x86_64
 binary="$(swift build "${swiftpm_args[@]}" --show-bin-path --configuration release --arch arm64 --arch x86_64)/$EXECUTABLE"
 [[ -x "$binary" ]] || fail "SwiftPM did not produce $binary"
 for architecture in arm64 x86_64; do
@@ -38,6 +39,8 @@ bundle_app "$binary" "$app_path"
 if [[ "$unsigned" == true ]]; then
   print "Created unsigned universal app for CI: $app_path"
 else
+  /usr/libexec/PlistBuddy -c 'Add :ScreenPrivacyTeamIdentifier string MM233FKU38' "$app_path/Contents/Info.plist"
+  codesign --force --sign "$SCREEN_PRIVACY_SIGNING_IDENTITY" --identifier com.iloapps.screenprivacy.PowerHelper --timestamp --options runtime "$app_path/Contents/Library/HelperTools/ScreenPrivacyPowerHelper"
   sign_sparkle_components "$app_path" "$SCREEN_PRIVACY_SIGNING_IDENTITY"
   codesign --force --sign "$SCREEN_PRIVACY_SIGNING_IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "$app_path"
   assert_release_signed_app "$app_path" "$SCREEN_PRIVACY_SIGNING_IDENTITY"

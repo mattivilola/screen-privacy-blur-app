@@ -1,5 +1,9 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
+
+let helperInfoPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .appendingPathComponent("Packaging/PowerHelper-Info.plist").path
 
 let package = Package(
     name: "ScreenPrivacy",
@@ -12,10 +16,16 @@ let package = Package(
         .target(name: "AttentionCore"),
         .target(name: "OverlayUI"),
         .target(name: "SnapshotCore"),
+        .target(name: "PowerHelperKit"),
+        .executableTarget(name: "ScreenPrivacyPowerHelper", dependencies: ["PowerHelperKit"],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT",
+                "-Xlinker", "__info_plist", "-Xlinker", helperInfoPath])]),
+        .testTarget(name: "PowerHelperKitTests", dependencies: ["PowerHelperKit"]),
         .executableTarget(name: "ScreenPrivacy", dependencies: [
-            "AttentionCore", "OverlayUI", "SnapshotCore",
+            "AttentionCore", "OverlayUI", "SnapshotCore", "PowerHelperKit",
             .product(name: "Sparkle", package: "Sparkle")
         ]),
+        .testTarget(name: "ScreenPrivacyTests", dependencies: ["ScreenPrivacy"]),
         .testTarget(name: "AttentionCoreTests", dependencies: ["AttentionCore"]),
         .testTarget(name: "OverlayUITests", dependencies: ["OverlayUI"]),
         .testTarget(name: "SnapshotCoreTests", dependencies: ["SnapshotCore"])

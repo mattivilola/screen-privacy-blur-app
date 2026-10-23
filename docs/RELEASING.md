@@ -24,6 +24,8 @@ export SCREEN_PRIVACY_NOTARY_PROFILE=YourNotaryProfile
 export SPARKLE_KEY_ACCOUNT=screen-privacy
 ```
 
+The signed bundle also embeds `ScreenPrivacyPowerHelper` at `Contents/Library/HelperTools` and its SMAppService daemon plist at `Contents/Library/LaunchDaemons`. Both helper and app must share the configured Developer ID team. `Packaging/PowerHelper-Info.plist` embeds the helper/client identifiers and team via the linker; forks must update those values, the launchd plist, signing identifier, and the app's packaged team metadata together. The helper is signed before the outer app. Both executables must be universal; test mutual XPC signature checks and registration on a signed installed build. Ad-hoc local bundles omit app team metadata and explicitly decline privileged-helper use.
+
 The shipped bundle uses `com.iloapps.screenprivacy`, macOS 14 minimum, hardened runtime, and the camera entitlement. Change `CFBundleShortVersionString` and increase `CFBundleVersion` in `Packaging/Info.plist` before each new release. The GitHub tag is `v<short version>` and must be unused. The public Sparkle key in that plist must match the private key in the release Mac's Keychain. Do not put the private key in Git, GitHub Actions, or the release assets.
 
 ## Build, sign, notarize, package

@@ -42,3 +42,13 @@ Live camera checks, energy profiling, and credentialed distribution verification
 - All 44 Swift tests passed on the release Mac outside the restricted command sandbox. GitHub CI passed for the initial 0.2.0 source commit, `e6cd43f`.
 - The release signing guard reproduced a false rejection of valid hardened-runtime metadata caused by an early-closing `grep -q` pipeline. Its regression test now includes long signature metadata and an ad-hoc signature with otherwise valid fields.
 - This check did not repeat the complete hardware matrix, energy profiling, a second-Mac download test, or the interactive Sparkle upgrade path. Signing, notarization, feed, and artifact verification results are retained with the local release artifacts.
+
+
+### 0.3.0 automated checks, 2026-10-23
+
+- Astra reviewed the plan and implementation. Its helper recovery, XPC timeout, and audio-route restoration findings were corrected and rechecked by inspection.
+- The full suite passed outside the restricted execution sandbox: 90 tests across attention/alarm state, camera motion evidence, tamper grace periods, audio restoration, helper recovery/safety/ownership, snapshot blur, menu UI, and rendered alarm colors. Two additional final helper deadline tests passed in the focused app suite (92 distinct tests total). The restricted sandbox could not render the pre-existing CoreImage blur fixture; the approved native run passed that test.
+- All release-tool guard tests passed; shell syntax, plist lint, and local ad-hoc bundle signature checks passed. The app's camera-free launch smoke test passed. The locally generated WAV siren decodes through NSSound.
+- Offscreen alarm renders were inspected: the armed banner is red at the top, and the triggered cover renders opaque red/white with large ALARM text. The screen alternates at one complete cycle per second. These are rendering checks, not live multi-display or Spaces acceptance.
+- The current Mac already reported `SleepDisabled 1` before helper use; this existing state was left unchanged. Privileged helper registration, live crash/restart restoration, battery/thermal behavior, built-in/external camera lid closure, and physical speaker/headphone switching have not been validated. The helper must report existing sleep policy as externally managed instead of taking ownership.
+- Live camera movement, siren loudness, exact device volume restoration, and user acceptance remain pending. No hardware success is implied by the automated checks. A signed release candidate can be prepared while this release checklist remains pending.

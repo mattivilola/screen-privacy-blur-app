@@ -12,10 +12,12 @@ mkdir -p "$output_dir"
 swiftpm_args=()
 [[ "${SWIFTPM_DISABLE_SANDBOX:-false}" == "true" ]] && swiftpm_args+=(--disable-sandbox)
 swift build "${swiftpm_args[@]}" --configuration debug --product "$EXECUTABLE"
+swift build "${swiftpm_args[@]}" --configuration debug --product ScreenPrivacyPowerHelper
 binary="$(swift build "${swiftpm_args[@]}" --show-bin-path --configuration debug)/$EXECUTABLE"
 [[ -x "$binary" ]] || fail "SwiftPM did not produce $binary"
 app_path="$output_dir/$APP_NAME"
 bundle_app "$binary" "$app_path"
+codesign --force --sign - --identifier com.iloapps.screenprivacy.PowerHelper "$app_path/Contents/Library/HelperTools/ScreenPrivacyPowerHelper"
 sign_sparkle_components "$app_path" '-'
 codesign --force --sign - "$app_path"
 codesign --verify --deep --strict --verbose=2 "$app_path"

@@ -5,6 +5,30 @@ import SnapshotCore
 @MainActor
 final class PrivacyCover {
     private var panels: [NSPanel] = []
+    private var alarmViews: [AlarmPresentationView] = []
+    private var flashTimer: Timer?
+    private var whitePhase = false
+    var alarmStatus: String? { didSet { updateAlarmPresentation() } }
+    var alarmSounding = false { didSet { updateAlarmPresentation() } }
+
+    private func updateAlarmPresentation() {
+        if alarmSounding, flashTimer == nil {
+            let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.whitePhase.toggle()
+                    self.alarmViews.forEach { $0.whitePhase = self.whitePhase }
+                }
+            }
+            flashTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } else if !alarmSounding {
+            flashTimer?.invalidate(); flashTimer = nil; whitePhase = false
+        }
+        alarmViews.forEach {
+            $0.status = alarmStatus; $0.sounding = alarmSounding; $0.whitePhase = whitePhase
+        }
+    }
     private var brandingViews: [CoverBrandingView] = []
     private var imageViews: [CGDirectDisplayID: NSImageView] = [:]
     private let snapshots = FrozenSnapshotCapture()
@@ -67,6 +91,7 @@ final class PrivacyCover {
         let oldPanels = panels
         panels = []
         brandingViews = []
+        alarmViews = []
         imageViews = [:]
         // Leave old covers visible until the new neutral covers have been ordered
         // front, so changing displays does not deliberately expose the desktop.
@@ -96,6 +121,9 @@ final class PrivacyCover {
             let branding = CoverBrandingView(screenSize: screen.frame.size, message: message, icon: appIcon)
             content.addSubview(branding)
             brandingViews.append(branding)
+            let alarmView = AlarmPresentationView(frame: content.bounds)
+            content.addSubview(alarmView)
+            alarmViews.append(alarmView)
             panel.contentView = content
             panel.setFrame(screen.frame, display: true)
             panel.orderFrontRegardless()
@@ -105,6 +133,7 @@ final class PrivacyCover {
             context.duration = 0.15
             panels.forEach { $0.animator().alphaValue = 1.0 }
         }
+        updateAlarmPresentation()
         refreshSnapshotIfNeeded()
     }
 

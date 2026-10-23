@@ -1,5 +1,15 @@
 # Screen Privacy releases
 
+## 0.3.0
+
+- Optional Alarm mode starts an adjustable countdown after you look away, then monitors camera movement. A red Alarm mode banner appears on the blurred cover; returning faces cannot disarm it.
+- Movement triggers a locally generated, looping siren through verified built-in speakers, plus a red/white ALARM display. Built-in speaker output is temporarily set to maximum; Siren level controls loudness. Disarm, test completion, and quit restore prior volume and mute.
+- Includes movement sensitivity, a 3–30 second arm countdown, a three-second siren/flashing test, and an optional closed-lid/camera-loss tamper trigger with a short grace period.
+- Detects compatible built-in accelerometers and uses their readings when normal access works. Camera detection remains available when hardware is absent or inaccessible.
+- Keeps the display awake during Alarm mode. Optional closed-lid operation uses an approved, signed helper with battery/heat guards and journaled crash recovery, adapted from Nomad Dashboard.
+
+Alarm mode is a local deterrent, not a lock or a theft guarantee. Camera faults and moving backgrounds may trigger it. Closed-lid operation needs helper approval; it does not make the built-in camera usable behind a closed lid. Automatic locking and a PIN are not included.
+
 ## 0.2.0
 
 - Automatic lighting correction adapts shadow lift and highlight reduction for indoor light, sun, and shaded faces against bright backgrounds. Cameras use continuous exposure and white balance where supported, with 720p capture when available.

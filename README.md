@@ -43,6 +43,26 @@ All preferences are stored locally and persist between launches. Protection also
 
 Keep your camera close to your screen's center. This app estimates head direction relative to the camera, not your eye gaze or which monitor you are reading. Looking only with your eyes may not trigger the cover.
 
+## Alarm mode
+
+Enable **Alarm mode** in the menu, face the camera until the display is uncovered, then look away. The app covers the display and starts the arm countdown (10 seconds by default). Looking back before it finishes cancels the countdown. The camera must be fresh and the scene must settle before arming. The red **Alarm mode** banner shows the countdown and monitoring status.
+
+Once armed, sustained movement in the camera view or an accessible built-in motion sensor triggers a repeating siren and a red/white **ALARM!** display (one color cycle per second). The cover and alarm stay latched when a face returns: face detection cannot identify the owner. Disarm using **Alarm mode** in the menu, **⌥⌘P** (also pauses protection), or quit. There is no PIN or automatic macOS locking; use macOS locking separately for access control.
+
+**Alarm settings** contains movement **Sensitivity**, **Siren level**, **Arm countdown** (3–30 seconds), and **Test siren and flashing for 3 seconds**. Siren level defaults to 100%. The app temporarily unmutes verified built-in speakers and sets their hardware output to maximum; the slider controls the siren's own loudness. It does not change the default audio output device. Prior volume and mute are saved before changing anything and restored on disarm, test completion, playback failure, and quit. Tests do not arm the real movement trigger. If the original speaker route is unavailable, restoration stays pending until that route returns and disarm/relaunch retries it. After an app crash, next-launch recovery preserves any intervening user volume changes. Force quitting cannot guarantee immediate volume restoration.
+
+**Alarm on closed lid or camera loss**, on by default, treats a closed lid, missing camera frames, or an almost black/white camera image as possible tampering once armed. It triggers after a short grace period; a camera fault or very dark/bright scene can also trigger it. Camera frames are considered missing after about 1.5 seconds, followed by a two-second grace period. Switch this off if you only want positive movement detection. A closed lid with a working external camera still counts as tampering when the setting is on.
+
+Alarm mode checks for an Apple Silicon motion sensor and uses it if normal user access delivers valid readings. Its menu status distinguishes missing hardware, denied access, no fresh readings, and active monitoring. This is an undocumented, model-dependent interface; the app does not request administrator privileges to read it. Camera movement detects changes in the scene, not proof that the laptop moved. People walking past, lighting, or a moving background can cause false alarms, and an external camera may remain still while the laptop moves.
+
+### Keep awake and a closed lid
+
+Alarm mode holds a process-scoped display-sleep assertion. Like Nomad Dashboard, actual closed-lid operation uses a separate, signed privileged helper. Choose **Allow closed-lid keep awake…**, approve Screen Privacy in System Settings → Login Items, and enable Alarm mode. Local ad-hoc builds cannot use the helper. Approval is optional; the menu reports when closed-lid protection is unavailable.
+
+The helper only changes macOS's sleep policy during its owned session. It records the previous setting before changing it, restores on disarm/disconnection/quit, retries failed restoration, and recovers after helper failure/restart. It stops for battery at or below 10% when on battery power, unavailable power status, or critical heat. If another utility already disabled sleep, Screen Privacy reports that it is externally managed and declines ownership. Independent utilities changing the same global sleep setting cannot provide coordinated ownership; avoid simultaneous closed-lid sessions in multiple utilities.
+
+Keeping the Mac awake does not keep its built-in camera usable behind a closed lid. With the tamper option on, closing the lid is itself an alarm trigger; without it, continued monitoring needs an accessible physical sensor or external camera. Actual system sleep stops Alarm mode and sound; forced shutdown, depleted battery, and app termination can stop the alarm. Locked/inactive sessions stop camera/screen capture; the menu reports monitoring availability and optional tamper detection may sound the siren. The app cannot draw over the macOS lock screen.
+
 ## Build
 
 Install Xcode with the Swift 6 toolchain and select it with `xcode-select`, then clone the source:

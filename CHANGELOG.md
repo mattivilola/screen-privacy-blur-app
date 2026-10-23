@@ -1,5 +1,13 @@
 # Screen Privacy releases
 
+## Unreleased
+
+- Add a silent **Test motion sensor…** window with raw acceleration, movement/peak values, valid report rate/count, freshness, alarm threshold, and a live graph.
+- Calibrate, then verify a sustained physical-sensor trigger using the real alarm policy without camera input, sound, or flashing. Screen protection pauses during the test and resumes on close; Alarm mode remains disarmed.
+- Activate the dedicated SPU accelerometer with an interval-only request, durable recovery record, exclusive lease, explicit restoration, and a bounded no-readings failure. No administrator permission is needed on the tested Mac.
+- Make fresh, calibrated physical readings primary. Add native-rate acceleration RMS and frozen-reference tilt detection with physical sensitivity thresholds; camera movement remains a fallback. The silent diagnostic runs the same policy and displays RMS/tilt thresholds.
+- Live testing confirmed roughly 796 reports/s, successful interval restoration, and the owner's movement trials; broad hardware and environment tuning remains pending.
+
 ## 0.3.0
 
 - Optional Alarm mode starts an adjustable countdown after you look away, then monitors camera movement. A red Alarm mode banner appears on the blurred cover; returning faces cannot disarm it.

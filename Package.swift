@@ -14,6 +14,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "AttentionCore"),
+        .target(name: "MotionSensorCore"),
+        .testTarget(name: "MotionSensorCoreTests", dependencies: ["MotionSensorCore"]),
         .target(name: "OverlayUI"),
         .target(name: "SnapshotCore"),
         .target(name: "PowerHelperKit"),
@@ -22,7 +24,7 @@ let package = Package(
                 "-Xlinker", "__info_plist", "-Xlinker", helperInfoPath])]),
         .testTarget(name: "PowerHelperKitTests", dependencies: ["PowerHelperKit"]),
         .executableTarget(name: "ScreenPrivacy", dependencies: [
-            "AttentionCore", "OverlayUI", "SnapshotCore", "PowerHelperKit",
+            "AttentionCore", "MotionSensorCore", "OverlayUI", "SnapshotCore", "PowerHelperKit",
             .product(name: "Sparkle", package: "Sparkle")
         ]),
         .testTarget(name: "ScreenPrivacyTests", dependencies: ["ScreenPrivacy"]),

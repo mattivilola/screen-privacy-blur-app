@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let tamperToggleItem = NSMenuItem(title: "Alarm on closed lid or camera loss", action: #selector(toggleTamperAlarm), keyEquivalent: "")
     private let alarmAudio = AlarmAudio()
     private let hardwareMotion = HardwareMotionMonitor()
+    private var motionSensorTest: MotionSensorTestController?
+    private let sirenTestItem = NSMenuItem(title: "Test siren and flashing for 3 seconds", action: #selector(testAlarm), keyEquivalent: "")
+    private let previewItem = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
     private let keepAwake = AlarmKeepAwake()
     private let alarmToggleItem = NSMenuItem(title: "Alarm mode", action: #selector(toggleAlarmMode), keyEquivalent: "")
     private let alarmInfoItem = NSMenuItem()
@@ -79,12 +82,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.updateStatus("Alarm stopped · \(reason)", tone: .alert)
         }
         buildMenu()
+        if let recoveryStatus = hardwareMotion.recoverPendingInterval() { sensorInfoItem.title = recoveryStatus }
         observeLifecycle()
         registerGlobalHotKey()
         // This launch-only switch supports bundle smoke tests without camera access.
         if CommandLine.arguments.contains("--smoke-test") {
             print("Screen Privacy launched; menu ready; camera not started")
             NSApp.terminate(nil)
+            return
+        }
+        if CommandLine.arguments.contains("--motion-sensor-test") {
+            showMotionSensorTest()
             return
         }
         if CommandLine.arguments.contains("--menu-test") {
@@ -133,20 +141,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(alarmInfoItem)
         let settingsItem = NSMenuItem(title: "Alarm settings", action: nil, keyEquivalent: "")
         let settings = NSMenu(title: "Alarm settings")
+        settings.autoenablesItems = false
         settingsItem.submenu = settings
         sensorInfoItem.title = "Motion sensor checked when Alarm mode starts"
         sensorInfoItem.isEnabled = false; settings.addItem(sensorInfoItem)
         powerInfoItem.title = "Keep awake starts with Alarm mode"
         powerInfoItem.isEnabled = false; settings.addItem(powerInfoItem)
+        let sensorTest = NSMenuItem(title: "Test motion sensor…", action: #selector(showMotionSensorTest), keyEquivalent: "")
+        sensorTest.target = self
+        sensorTest.image = Self.symbol("waveform.path")
+        settings.addItem(sensorTest)
         settings.addItem(.separator())
         let sensitivity = NSMenuItem()
         sensitivity.view = SettingSliderView(title: "Sensitivity", leftLabel: "Less sensitive", rightLabel: "More sensitive",
-            accessibilityLabel: "Alarm movement sensitivity", toolTip: "Higher sensitivity detects smaller scene or sensor movements.",
+            accessibilityLabel: "Alarm movement sensitivity", toolTip: "Higher sensitivity detects smaller sustained acceleration or tilt. A calibrated physical sensor is primary; camera motion is the fallback.",
             value: alarm.sensitivity, describe: { value in
-                SettingReading(valueText: "\(Int(value * 100))", tierName: "Movement", tone: .alert,
-                               detail: "Sustained motion after arming triggers the siren")
+                SettingReading(valueText: "\(Int(value * 100))%", tierName: "Movement", tone: .alert,
+                               detail: String(format: "Sensor: %.3f g RMS or %.0f° tilt", PhysicalMotionPolicy.accelerationThreshold(sensitivity: value), PhysicalMotionPolicy.tiltThreshold(sensitivity: value)))
             }, onChange: { [weak self] value in
                 self?.alarm.sensitivity = value; self?.defaults.set(value, forKey: "alarmSensitivity")
+                self?.motionSensorTest?.setSensitivity(value)
             })
         settings.addItem(sensitivity)
         let volume = NSMenuItem()
@@ -172,8 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tamperToggleItem.state = tamperAlarmEnabled ? .on : .off
         tamperToggleItem.toolTip = "Once armed, a closed lid, missing camera frames, or a black/white camera image triggers the alarm after a short grace period. Camera faults can also trigger it."
         settings.addItem(tamperToggleItem)
-        let test = NSMenuItem(title: "Test siren and flashing for 3 seconds", action: #selector(testAlarm), keyEquivalent: "")
-        test.target = self; settings.addItem(test)
+        sirenTestItem.target = self; settings.addItem(sirenTestItem)
         let power = NSMenuItem(title: "Allow closed-lid keep awake…", action: #selector(prepareLidClosed), keyEquivalent: "")
         power.target = self; settings.addItem(power)
         menu.addItem(settingsItem)
@@ -209,10 +222,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         message.target = self
         message.image = Self.symbol("text.bubble")
         menu.addItem(message)
-        let preview = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
-        preview.target = self
-        preview.image = Self.symbol("eye")
-        menu.addItem(preview)
+        previewItem.target = self
+        previewItem.image = Self.symbol("eye")
+        menu.addItem(previewItem)
         menu.addItem(.separator())
 
         menu.addItem(.sectionHeader(title: "Setup"))
@@ -251,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggle() {
-        guard !permissionPending else { return }
+        guard !permissionPending, motionSensorTest == nil else { return }
         disarmAlarm()
         endPreview()
         if enabled {
@@ -269,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func previewCover() {
-        guard !suspended else { return }
+        guard motionSensorTest == nil, !suspended else { return }
         explainScreenCaptureIfNeeded()
         previewTimer?.invalidate()
         let token = UUID()
@@ -308,6 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func enableWithPermission() {
+        guard motionSensorTest == nil else { return }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             explainScreenCaptureIfNeeded()
@@ -322,7 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Task { @MainActor in
                     guard let self else { return }
                     self.permissionPending = false
-                    self.toggleItem.isEnabled = true
+                    self.toggleItem.isEnabled = self.motionSensorTest == nil
                     if granted { self.enableWithPermission() }
                     else { self.alarmRequested = false; self.updateStatus("Camera permission required", tone: .alert) }
                 }
@@ -729,6 +742,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
+        motionSensorTest?.invalidate()
+        motionSensorTest = nil
         disarmAlarm()
         keepAwake.terminate()
         endPreview()
@@ -742,6 +757,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 // MARK: - Alarm mode
 extension AppDelegate {
     @objc private func toggleAlarmMode() {
+        guard motionSensorTest == nil else { return }
         if alarmEnabled || alarmTesting || alarmRequested { disarmAlarm(); return }
         if enabled { beginAlarmMode() }
         else { alarmRequested = true; enableWithPermission() }
@@ -753,9 +769,9 @@ extension AppDelegate {
         alarmFailure = nil
         alarm.enable()
         tamperEvidence.reset()
-        hardwareMotion.start { [weak self] score in
-            guard let self, self.alarmEnabled, !self.alarmTesting, !self.sleeping, !self.sessionInactive else { return }
-            self.alarm.motion(score, source: "sensor", at: ProcessInfo.processInfo.systemUptime)
+        hardwareMotion.startSamples { [weak self] sample in
+            guard let self, self.alarmEnabled, !self.alarmTesting, !self.sleeping else { return }
+            self.alarm.receiveSensor(sample)
             self.refreshAlarm()
         }
         keepAwake.start()
@@ -799,8 +815,9 @@ extension AppDelegate {
             return remaining > 0 ? "Alarm arms in \(remaining) s" : "Alarm settling · stand clear"
         case .armed:
             let fresh = !suspended && lastFrame.map { ProcessInfo.processInfo.systemUptime - $0 <= 1.5 } == true
-            if fresh { return "Alarm armed · monitoring movement" }
-            return hardwareMotion.isMonitoring && !sessionInactive && !sleeping ? "Alarm armed · sensor only" : "Alarm armed · monitoring unavailable"
+            if alarm.usesPhysicalPrimary(at: ProcessInfo.processInfo.systemUptime), !sleeping { return "Alarm armed · physical sensor primary" }
+            if fresh { return "Alarm armed · camera fallback" }
+            return "Alarm armed · monitoring unavailable"
         case .alarming: return "ALARM! · disarm from menu or ⌥⌘P"
         }
     }
@@ -832,7 +849,7 @@ extension AppDelegate {
     }
 
     @objc private func testAlarm() {
-        guard !alarmTesting, !suspended, alarm.phase != .alarming else { return }
+        guard motionSensorTest == nil, !alarmTesting, !suspended, alarm.phase != .alarming else { return }
         alarm.interrupt()
         tamperEvidence.reset()
         alarmTesting = true
@@ -864,4 +881,34 @@ extension AppDelegate {
     }
 
     @objc private func prepareLidClosed() { keepAwake.prepareLidClosed() }
+}
+
+
+// MARK: - Silent physical sensor diagnostic
+extension AppDelegate {
+    @objc private func showMotionSensorTest() {
+        if let motionSensorTest { motionSensorTest.present(); return }
+        let restoreProtection = enabled
+        let test = MotionSensorTestController(sensitivity: alarm.sensitivity)
+        motionSensorTest = test
+        disarmAlarm()
+        endPreview()
+        enabled = false
+        stopCapture()
+        setCoverVisible(false)
+        for item in [toggleItem, alarmToggleItem, previewItem, sirenTestItem] { item.isEnabled = false }
+        test.onClose = { [weak self] in
+            guard let self else { return }
+            self.motionSensorTest = nil
+            self.toggleItem.isEnabled = !self.permissionPending
+            for item in [self.alarmToggleItem, self.previewItem, self.sirenTestItem] { item.isEnabled = true }
+            self.enabled = restoreProtection
+            if restoreProtection { self.resume() }
+            else { self.updateStatus("Paused", tone: .inactive) }
+            self.refreshAttentionMeter()
+        }
+        updateStatus("Sensor test · protection paused", tone: .balanced)
+        refreshAttentionMeter()
+        test.present()
+    }
 }

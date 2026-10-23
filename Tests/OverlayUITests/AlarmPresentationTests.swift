@@ -6,6 +6,7 @@ import Testing
 struct AlarmPresentationTests {
     @Test func alarmAlternatesOpaqueRedAndWhiteAndBannerStaysAtTop() throws {
         let view = AlarmPresentationView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.reduceMotion = false
         view.status = "Alarm armed · monitoring movement"
         view.sounding = true
         let red = try render(view)
@@ -25,6 +26,17 @@ struct AlarmPresentationTests {
                 try image.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent(name + ".png"))
             }
         }
+    }
+    @Test func reducedMotionKeepsTheAlarmVisibleWithoutFlashing() throws {
+        let view = AlarmPresentationView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.reduceMotion = true
+        view.status = "Movement detected"
+        view.sounding = true
+        view.whitePhase = true
+        let image = try render(view)
+        #expect(image.colorAt(x: 10, y: 10)!.redComponent > 0.7)
+        #expect(image.colorAt(x: 10, y: 10)!.greenComponent < 0.5)
+        #expect(view.accessibilityLabel() == "Alarm sounding")
     }
     private func render(_ view: AlarmPresentationView) throws -> NSBitmapImageRep {
         let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 800, pixelsHigh: 600,

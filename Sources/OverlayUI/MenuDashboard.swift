@@ -2,8 +2,8 @@ import AppKit
 
 /// Layout shared by the views embedded in the status menu.
 public enum MenuDashboard {
-    public static let width: CGFloat = 300
-    fileprivate static let inset: CGFloat = 18
+    public static let width: CGFloat = 340
+    fileprivate static let inset: CGFloat = 20
     fileprivate static let contentWidth = width - inset * 2
 }
 
@@ -28,12 +28,14 @@ public struct SettingReading: Equatable {
     public let tierName: String
     public let tone: DashboardTone
     public let detail: String
+    public let technicalDetail: String?
 
-    public init(valueText: String, tierName: String, tone: DashboardTone, detail: String) {
+    public init(valueText: String, tierName: String, tone: DashboardTone, detail: String, technicalDetail: String? = nil) {
         self.valueText = valueText
         self.tierName = tierName
         self.tone = tone
         self.detail = detail
+        self.technicalDetail = technicalDetail
     }
 }
 
@@ -44,12 +46,14 @@ public struct AttentionMeterReading: Equatable {
     /// Pose relative to the look-away limit (1 is the limit); nil leaves the bar empty.
     public let ratio: Double?
     public let detail: String
+    public let technicalDetail: String?
 
-    public init(statusText: String, tone: DashboardTone, ratio: Double?, detail: String) {
+    public init(statusText: String, tone: DashboardTone, ratio: Double?, detail: String, technicalDetail: String? = nil) {
         self.statusText = statusText
         self.tone = tone
         self.ratio = ratio
         self.detail = detail
+        self.technicalDetail = technicalDetail
     }
 }
 
@@ -86,45 +90,34 @@ private func makeLabel(_ text: String = "", size: CGFloat = 13, weight: NSFont.W
     return field
 }
 
-/// A filled circle that resolves its dynamic color at draw time.
-@MainActor
-private final class ToneDotView: NSView {
-    var tone: DashboardTone = .inactive {
-        didSet { if tone != oldValue { needsDisplay = true } }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        tone.color.setFill()
-        NSBezierPath(ovalIn: bounds).fill()
-    }
-}
-
-/// Protection status: a tone dot, the status text and the selected camera.
+/// A clear protection state, backed by text and a familiar symbol.
 @MainActor
 public final class StatusHeaderView: NSView {
-    private let dot = ToneDotView(frame: NSRect(x: MenuDashboard.inset, y: 28, width: 8, height: 8))
-    private let titleField = makeLabel(size: 13, weight: .semibold,
-                                       frame: NSRect(x: 34, y: 23, width: MenuDashboard.width - 34 - MenuDashboard.inset, height: 18))
-    private let subtitleField = makeLabel(size: 11, color: .secondaryLabelColor,
-                                          frame: NSRect(x: 34, y: 6, width: MenuDashboard.width - 34 - MenuDashboard.inset, height: 15))
+    private let icon = NSImageView(frame: NSRect(x: 20, y: 27, width: 28, height: 28))
+    private let titleField = makeLabel(size: 15, weight: .semibold,
+        frame: NSRect(x: 62, y: 31, width: MenuDashboard.width - 82, height: 40))
+    private let subtitleField = makeLabel(size: 12, color: .secondaryLabelColor,
+        frame: NSRect(x: 62, y: 10, width: MenuDashboard.width - 82, height: 18))
 
     public init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuDashboard.width, height: 48))
-        addSubview(dot)
-        addSubview(titleField)
-        addSubview(subtitleField)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.staticText)
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuDashboard.width, height: 80))
+        titleField.maximumNumberOfLines = 2
+        titleField.lineBreakMode = .byWordWrapping
+        titleField.cell?.wraps = true
+        titleField.cell?.isScrollable = false
+        icon.setAccessibilityElement(false)
+        addSubview(icon); addSubview(titleField); addSubview(subtitleField)
+        setAccessibilityElement(true); setAccessibilityRole(.staticText)
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public func update(title: String, subtitle: String, tone: DashboardTone) {
+    public func update(title: String, subtitle: String, tone: DashboardTone, symbolName: String? = nil) {
         titleField.stringValue = title
         subtitleField.stringValue = subtitle
-        dot.tone = tone
-        // Longer statuses truncate in the fixed width; the tooltip keeps them readable.
+        let symbol = symbolName ?? (tone == .inactive ? "pause.circle" : "eye")
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        icon.contentTintColor = tone.color
         toolTip = "\(title)\n\(subtitle)"
         setAccessibilityLabel("\(title). \(subtitle)")
     }
@@ -136,7 +129,7 @@ public final class SettingSliderView: NSView {
     private let describe: @MainActor (Double) -> SettingReading
     private let onChange: @MainActor (Double) -> Void
     private let slider: NSSlider
-    private let badgeDot = ToneDotView(frame: NSRect(x: 0, y: 75, width: 8, height: 8))
+    private let settingHint: String
     private let badgeField: NSTextField
     private let detailField: NSTextField
 
@@ -146,19 +139,19 @@ public final class SettingSliderView: NSView {
                 onChange: @escaping @MainActor (Double) -> Void) {
         self.describe = describe
         self.onChange = onChange
+        self.settingHint = toolTip
         let inset = MenuDashboard.inset
         let width = MenuDashboard.width
         slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: nil, action: nil)
-        slider.frame = NSRect(x: 16, y: 44, width: width - 32, height: 24)
-        badgeField = makeLabel(size: 12, weight: .medium, frame: NSRect(x: 120, y: 70, width: width - 120 - inset, height: 18),
+        slider.frame = NSRect(x: 18, y: 38, width: width - 36, height: 24)
+        badgeField = makeLabel(size: 12, weight: .medium, frame: NSRect(x: 146, y: 64, width: width - 146 - inset, height: 18),
                                alignment: .right)
         badgeField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         detailField = makeLabel(size: 11, color: .secondaryLabelColor,
-                                frame: NSRect(x: inset, y: 8, width: MenuDashboard.contentWidth, height: 16))
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 96))
+                                frame: NSRect(x: inset, y: 3, width: MenuDashboard.contentWidth, height: 17))
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 88))
 
-        addSubview(makeLabel(title, frame: NSRect(x: inset, y: 70, width: 100, height: 18)))
-        addSubview(badgeDot)
+        addSubview(makeLabel(title, weight: .medium, frame: NSRect(x: inset, y: 64, width: 130, height: 18)))
         addSubview(badgeField)
         slider.target = self
         slider.action = #selector(sliderChanged(_:))
@@ -167,9 +160,9 @@ public final class SettingSliderView: NSView {
         slider.toolTip = toolTip
         addSubview(slider)
         addSubview(makeLabel(leftLabel, size: 11, color: .secondaryLabelColor,
-                             frame: NSRect(x: inset, y: 26, width: 105, height: 16)))
+                             frame: NSRect(x: inset, y: 22, width: 135, height: 16)))
         addSubview(makeLabel(rightLabel, size: 11, color: .secondaryLabelColor,
-                             frame: NSRect(x: width - inset - 109, y: 26, width: 109, height: 16),
+                             frame: NSRect(x: width - inset - 135, y: 22, width: 135, height: 16),
                              alignment: .right))
         addSubview(detailField)
         refresh(for: value)
@@ -185,14 +178,11 @@ public final class SettingSliderView: NSView {
 
     private func refresh(for value: Double) {
         let reading = describe(value)
-        badgeField.stringValue = "\(reading.valueText) · \(reading.tierName)"
-        badgeField.textColor = reading.tone.color
+        badgeField.stringValue = [reading.valueText, reading.tierName].filter { !$0.isEmpty }.joined(separator: " · ")
+        badgeField.textColor = .secondaryLabelColor
         detailField.stringValue = reading.detail
-        badgeDot.tone = reading.tone
-        // The badge is right-aligned, so the dot trails the measured text to its left.
-        let textWidth = ceil(badgeField.attributedStringValue.size().width)
-        badgeDot.frame.origin.x = badgeField.frame.maxX - textWidth - 6 - badgeDot.frame.width
-        slider.setAccessibilityValueDescription("\(reading.valueText), \(reading.tierName)")
+        slider.toolTip = [settingHint, reading.technicalDetail].compactMap { $0 }.joined(separator: "\n")
+        slider.setAccessibilityValueDescription([reading.valueText, reading.tierName].filter { !$0.isEmpty }.joined(separator: ", "))
     }
 }
 
@@ -247,23 +237,22 @@ private final class MeterBarView: NSView {
 /// Live head direction against the look-away limit.
 @MainActor
 public final class AttentionMeterView: NSView {
-    private let statusField = makeLabel(size: 12, weight: .medium,
-                                        frame: NSRect(x: 130, y: 60, width: MenuDashboard.width - 130 - MenuDashboard.inset, height: 18),
-                                        alignment: .right)
+    private let statusField = makeLabel(size: 15, weight: .semibold,
+        frame: NSRect(x: MenuDashboard.inset, y: 62, width: MenuDashboard.contentWidth, height: 22))
     private let bar: MeterBarView
-    private let detailField = makeLabel(size: 11, color: .secondaryLabelColor,
-                                        frame: NSRect(x: MenuDashboard.inset, y: 8, width: MenuDashboard.contentWidth, height: 32))
+    private let detailField = makeLabel(size: 12, color: .secondaryLabelColor,
+        frame: NSRect(x: MenuDashboard.inset, y: 6, width: MenuDashboard.contentWidth, height: 34))
     private var current: AttentionMeterReading?
+    private var accessibilitySummary: String?
 
     public init(recoveryFraction: Double) {
         bar = MeterBarView(frame: NSRect(x: MenuDashboard.inset, y: 44, width: MenuDashboard.contentWidth, height: 10),
                            recoveryFraction: recoveryFraction)
-        super.init(frame: NSRect(x: 0, y: 0, width: MenuDashboard.width, height: 86))
+        super.init(frame: NSRect(x: 0, y: 0, width: MenuDashboard.width, height: 92))
         detailField.maximumNumberOfLines = 2
         detailField.lineBreakMode = .byWordWrapping
         detailField.cell?.wraps = true
         detailField.cell?.isScrollable = false
-        addSubview(makeLabel("Head direction", frame: NSRect(x: MenuDashboard.inset, y: 60, width: 110, height: 18)))
         addSubview(statusField)
         addSubview(bar)
         addSubview(detailField)
@@ -279,10 +268,11 @@ public final class AttentionMeterView: NSView {
         guard reading != current else { return }
         current = reading
         statusField.stringValue = reading.statusText
-        statusField.textColor = reading.tone.color
+        statusField.textColor = .labelColor
         detailField.stringValue = reading.detail
         bar.update(ratio: reading.ratio, tone: reading.tone)
-        setAccessibilityValue("\(reading.statusText). \(reading.detail)")
-        toolTip = "\(reading.statusText)\n\(reading.detail)"
+        let summary = "\(reading.statusText). \(reading.detail)"
+        if summary != accessibilitySummary { setAccessibilityValue(summary); accessibilitySummary = summary }
+        toolTip = [reading.statusText, reading.detail, reading.technicalDetail].compactMap { $0 }.joined(separator: "\n")
     }
 }

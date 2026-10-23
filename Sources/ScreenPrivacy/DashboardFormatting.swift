@@ -16,21 +16,22 @@ enum DashboardFormatting {
         default: ("Relaxed", .caution)
         }
         return SettingReading(
-            valueText: "\(Int((tolerance * 100).rounded()))",
+            valueText: "\(Int((tolerance * 100).rounded()))%",
             tierName: tier.name,
             tone: tier.tone,
-            detail: "Turn ±\(degrees(limits.yawDegrees))° · tilt ±\(degrees(limits.pitchDegrees))° · covers after \(String(format: "%.1f", limits.awayDelay)) s")
+            detail: tolerance < 0.34 ? "Cover sooner when you look away" : (tolerance < 0.67 ? "Room for small, natural head movements" : "More freedom to move while reading"),
+            technicalDetail: "Turn ±\(degrees(limits.yawDegrees))° · tilt ±\(degrees(limits.pitchDegrees))° · covers after \(String(format: "%.1f", limits.awayDelay)) s")
     }
 
     static func blurReading(_ strength: Double) -> SettingReading {
         let radius = SnapshotDisplay.blurRadiusPoints(forStrength: strength)
         let tier: (name: String, tone: DashboardTone, detail: String) = switch strength {
-        case ..<0.34: ("Heavy", .good, "Text and shapes hidden")
-        case ..<0.67: ("Medium", .balanced, "Shapes visible, text hidden")
-        default: ("Light", .caution, "Large text may stay readable")
+        case ..<0.34: ("Heavy", .balanced, "A stronger blur over the frozen screen")
+        case ..<0.67: ("Medium", .balanced, "A softer view of the frozen screen")
+        default: ("Light", .balanced, "Large text may remain readable")
         }
-        return SettingReading(valueText: "\(Int(radius.rounded())) pt", tierName: tier.name,
-                              tone: tier.tone, detail: tier.detail)
+        return SettingReading(valueText: tier.name, tierName: "",
+                              tone: tier.tone, detail: tier.detail, technicalDetail: "Blur radius: \(Int(radius.rounded())) points. A frozen image may remain recognizable.")
     }
 
     /// `now` and `analysis.time` share the system-uptime clock.
@@ -79,7 +80,12 @@ enum DashboardFormatting {
         case .caution: "Near the limit"
         default: "Looking away"
         }
-        return AttentionMeterReading(statusText: status, tone: tone, ratio: ratio, detail: detail)
+        let guidance = switch tone {
+        case .good: "Look away to try the screen cover"
+        case .caution: "You’re close to the look-away boundary"
+        default: "Face the camera to uncover your screen"
+        }
+        return AttentionMeterReading(statusText: status, tone: tone, ratio: ratio, detail: guidance, technicalDetail: detail)
     }
 
     private static func missingFaceStatus(_ lighting: LightingCondition) -> String {

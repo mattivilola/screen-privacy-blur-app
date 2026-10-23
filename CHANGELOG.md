@@ -1,5 +1,12 @@
 # Screen Privacy releases
 
+## 0.4.0
+
+- Make the menu dashboard easier to scan with larger status text, clear camera guidance, and plain-language setting labels. Exact angles, delays, and movement thresholds remain available on hover.
+- Guide the silent motion sensor test through keeping still and lifting or tilting the Mac. Show a live movement meter, with raw readings and graphs under Sensor details. Add clear retry, test-again, and Done actions.
+- Simplify welcome, permission, and About dialogs with native icons and shorter explanations. Add a live preview to the screen-message editor.
+- Keep the alarm solid red when macOS Reduce Motion is enabled, and improve accessibility labels without announcing every flashing frame.
+
 ## 0.3.1
 
 - Add a silent **Test motion sensor…** window with raw acceleration, movement/peak values, valid report rate/count, freshness, alarm threshold, and a live graph.

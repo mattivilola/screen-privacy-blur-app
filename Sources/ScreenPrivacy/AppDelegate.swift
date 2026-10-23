@@ -17,10 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let hardwareMotion = HardwareMotionMonitor()
     private var motionSensorTest: MotionSensorTestController?
     private let sirenTestItem = NSMenuItem(title: "Test siren and flashing for 3 seconds", action: #selector(testAlarm), keyEquivalent: "")
-    private let previewItem = NSMenuItem(title: "Preview for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
+    private let previewItem = NSMenuItem(title: "Preview cover for 5 seconds", action: #selector(previewCover), keyEquivalent: "")
     private let keepAwake = AlarmKeepAwake()
     private let alarmToggleItem = NSMenuItem(title: "Alarm mode", action: #selector(toggleAlarmMode), keyEquivalent: "")
     private let alarmInfoItem = NSMenuItem()
+    private let alarmExplanation = MenuNoteView(text: "Off. Face the screen, then look away to arm.")
     private let sensorInfoItem = NSMenuItem()
     private let powerInfoItem = NSMenuItem()
     private var alarmTimer: Timer?
@@ -97,8 +98,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if CommandLine.arguments.contains("--menu-test") {
             cover.captureAllowed = false
+            DispatchQueue.main.async { [weak self] in self?.statusItem.button?.performClick(nil) }
             return
         }
+        // Native presentation checks keep camera capture and automatic updates off.
+        if CommandLine.arguments.contains("--welcome-test") { showIntroduction(); NSApp.terminate(nil); return }
+        if CommandLine.arguments.contains("--about-test") { showAbout(); NSApp.terminate(nil); return }
+        if CommandLine.arguments.contains("--message-test") { editMessage(); NSApp.terminate(nil); return }
+        if CommandLine.arguments.contains("--permission-test") { screenCapturePermission(); NSApp.terminate(nil); return }
         updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
         checkUpdatesItem.target = updaterController
         checkUpdatesItem.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
@@ -126,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggleItem)
         menu.addItem(.separator())
 
-        menu.addItem(.sectionHeader(title: "Live check"))
+        menu.addItem(.sectionHeader(title: "Camera check"))
         let meterItem = NSMenuItem()
         meterItem.view = attentionMeter
         menu.addItem(meterItem)
@@ -138,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(alarmToggleItem)
         alarmInfoItem.isEnabled = false
         alarmInfoItem.title = "Off · arms after you look away"
+        alarmInfoItem.view = alarmExplanation
         menu.addItem(alarmInfoItem)
         let settingsItem = NSMenuItem(title: "Alarm settings", action: nil, keyEquivalent: "")
         let settings = NSMenu(title: "Alarm settings")
@@ -156,26 +164,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sensitivity.view = SettingSliderView(title: "Sensitivity", leftLabel: "Less sensitive", rightLabel: "More sensitive",
             accessibilityLabel: "Alarm movement sensitivity", toolTip: "Higher sensitivity detects smaller sustained acceleration or tilt. A calibrated physical sensor is primary; camera motion is the fallback.",
             value: alarm.sensitivity, describe: { value in
-                SettingReading(valueText: "\(Int(value * 100))%", tierName: "Movement", tone: .alert,
-                               detail: String(format: "Sensor: %.3f g RMS or %.0f° tilt", PhysicalMotionPolicy.accelerationThreshold(sensitivity: value), PhysicalMotionPolicy.tiltThreshold(sensitivity: value)))
+                SettingReading(valueText: "\(Int(value * 100))%", tierName: value < 0.34 ? "Lower" : (value < 0.67 ? "Balanced" : "Higher"), tone: .balanced,
+                               detail: "Find your balance with the silent test",
+                               technicalDetail: String(format: "Sensor: %.3f g RMS for 0.35 seconds, or %.0f° tilt for 0.5 seconds.", PhysicalMotionPolicy.accelerationThreshold(sensitivity: value), PhysicalMotionPolicy.tiltThreshold(sensitivity: value)))
             }, onChange: { [weak self] value in
                 self?.alarm.sensitivity = value; self?.defaults.set(value, forKey: "alarmSensitivity")
                 self?.motionSensorTest?.setSensitivity(value)
             })
         settings.addItem(sensitivity)
         let volume = NSMenuItem()
-        volume.view = SettingSliderView(title: "Siren level", leftLabel: "Quiet", rightLabel: "Maximum",
+        volume.view = SettingSliderView(title: "Siren volume", leftLabel: "Quiet", rightLabel: "Maximum",
             accessibilityLabel: "Siren loudness", toolTip: "Built-in speaker volume is temporarily set to 100%; this slider controls siren loudness. Previous speaker settings return on disarm.",
             value: sirenLevel, describe: { value in
-                SettingReading(valueText: "\(Int(max(0.1, value) * 100))%", tierName: "Speakers at 100%", tone: .alert,
-                               detail: "Original volume and mute return on disarm")
+                SettingReading(valueText: "\(Int(max(0.1, value) * 100))%", tierName: "", tone: .balanced,
+                               detail: "Previous speaker settings return afterward")
             }, onChange: { [weak self] value in self?.defaults.set(max(0.1, value), forKey: "sirenLevel") })
         settings.addItem(volume)
         let countdown = NSMenuItem()
-        countdown.view = SettingSliderView(title: "Arm countdown", leftLabel: "3 seconds", rightLabel: "30 seconds",
+        countdown.view = SettingSliderView(title: "Time to leave", leftLabel: "3 seconds", rightLabel: "30 seconds",
             accessibilityLabel: "Alarm arming countdown", toolTip: "Time to leave before movement detection is armed.",
             value: (alarm.countdown - 3) / 27, describe: { value in
-                SettingReading(valueText: "\(Int((3 + value * 27).rounded())) s", tierName: "After looking away", tone: .caution,
+                SettingReading(valueText: "\(Int((3 + value * 27).rounded())) s", tierName: "", tone: .balanced,
                                detail: "Looking back cancels the countdown")
             }, onChange: { [weak self] value in
                 let seconds = (3 + value * 27).rounded()
@@ -186,16 +195,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tamperToggleItem.state = tamperAlarmEnabled ? .on : .off
         tamperToggleItem.toolTip = "Once armed, a closed lid, missing camera frames, or a black/white camera image triggers the alarm after a short grace period. Camera faults can also trigger it."
         settings.addItem(tamperToggleItem)
+        settings.addItem(.separator())
+        let sirenNote = NSMenuItem()
+        sirenNote.view = MenuNoteView(text: "The siren test temporarily uses maximum built-in speaker volume. Your previous settings return afterward.")
+        settings.addItem(sirenNote)
         sirenTestItem.target = self; settings.addItem(sirenTestItem)
-        let power = NSMenuItem(title: "Allow closed-lid keep awake…", action: #selector(prepareLidClosed), keyEquivalent: "")
+        let power = NSMenuItem(title: "Keep awake with the lid closed…", action: #selector(prepareLidClosed), keyEquivalent: "")
         power.target = self; settings.addItem(power)
         menu.addItem(settingsItem)
         menu.addItem(.separator())
 
-        menu.addItem(.sectionHeader(title: "Detection"))
+        menu.addItem(.sectionHeader(title: "Privacy detection"))
         let toleranceItem = NSMenuItem()
         toleranceItem.view = SettingSliderView(
-            title: "Tolerance", leftLabel: "Stricter", rightLabel: "More forgiving",
+            title: "Head movement", leftLabel: "Stricter", rightLabel: "More forgiving",
             accessibilityLabel: "Head position and look-away tolerance",
             toolTip: "Higher tolerance allows more head movement and waits longer before covering.",
             value: attention.tolerance,
@@ -208,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(cameraMenuItem)
         menu.addItem(.separator())
 
-        menu.addItem(.sectionHeader(title: "Cover"))
+        menu.addItem(.sectionHeader(title: "Screen cover"))
         let blurItem = NSMenuItem()
         blurItem.view = SettingSliderView(
             title: "Blur level", leftLabel: "Heavy blur", rightLabel: "Readable",
@@ -218,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             describe: DashboardFormatting.blurReading,
             onChange: { [weak self] value in self?.setBlurStrength(value) })
         menu.addItem(blurItem)
-        let message = NSMenuItem(title: "Custom message…", action: #selector(editMessage), keyEquivalent: "")
+        let message = NSMenuItem(title: "Screen message…", action: #selector(editMessage), keyEquivalent: "")
         message.target = self
         message.image = Self.symbol("text.bubble")
         menu.addItem(message)
@@ -228,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         menu.addItem(.sectionHeader(title: "Setup"))
-        let screenAccess = NSMenuItem(title: "Screen Capture Permission…", action: #selector(screenCapturePermission), keyEquivalent: "")
+        let screenAccess = NSMenuItem(title: "Blurred cover permission…", action: #selector(screenCapturePermission), keyEquivalent: "")
         screenAccess.target = self
         screenAccess.image = Self.symbol("rectangle.dashed.badge.record")
         menu.addItem(screenAccess)
@@ -344,9 +357,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alarmRequested = false
             updateStatus("Camera permission required", tone: .alert)
             let alert = NSAlert()
-            alert.messageText = "Allow camera access"
+            alert.messageText = "Camera access is needed"
             alert.informativeText = "Enable Screen Privacy in System Settings → Privacy & Security → Camera, then enable protection again. Frames are processed locally and never saved."
-            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Open Camera Settings")
             alert.addButton(withTitle: "Cancel")
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn,
@@ -532,6 +545,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             print("Screen Privacy: Launch at login failed: \(error)")
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t change startup settings"
+            alert.informativeText = "Try again, or allow Screen Privacy in System Settings → General → Login Items."
+            alert.addButton(withTitle: "Done")
+            alert.window.level = .statusBar
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
         }
         updateLaunchAtLoginState()
     }
@@ -558,7 +578,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         protectionStatus = text
         protectionTone = tone
         let text = alarmEnabled || alarmTesting ? alarmStatus : (previewID == nil ? text : "Preview · 5 seconds")
-        let tone: DashboardTone = alarmEnabled || alarmTesting ? .alert : (previewID == nil ? tone : .balanced)
+        let alarmTone: DashboardTone = alarmTesting || alarm.phase == .alarming || alarmFailure != nil ? .alert : .balanced
+        let tone: DashboardTone = alarmEnabled || alarmTesting ? alarmTone : (previewID == nil ? tone : .balanced)
         guard stateItem.title != text || displayedTone != tone || statusItem.button?.image == nil else { return }
         stateItem.title = text
         displayedTone = tone
@@ -571,7 +592,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func renderStatusHeader() {
-        statusHeader.update(title: stateItem.title, subtitle: cameraSubtitle, tone: displayedTone)
+        let symbol = alarmEnabled || alarmTesting ? "bell" : (enabled ? (cover.isVisible ? "eye.slash" : "eye") : "pause.circle")
+        statusHeader.update(title: stateItem.title, subtitle: cameraSubtitle, tone: displayedTone, symbolName: symbol)
     }
 
     private func observe(_ name: Notification.Name, center: NotificationCenter,
@@ -658,21 +680,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showIntroduction() {
         let alert = NSAlert()
         alert.messageText = "Privacy when you look away"
-        if let icon = appIcon {
-            alert.icon = icon
-        }
-        if let logo = brandLogo {
-            let logoView = NSImageView(frame: NSRect(x: 0, y: 0, width: 340, height: 191))
-            logoView.image = logo
-            logoView.imageScaling = .scaleProportionallyUpOrDown
-            logoView.wantsLayer = true
-            logoView.layer?.cornerRadius = 8
-            logoView.layer?.masksToBounds = true
-            alert.accessoryView = logoView
-        }
-        alert.informativeText = "Screen Privacy uses your camera to estimate head direction and covers your displays when you look away. Camera frames stay on this Mac and are never saved. The camera indicator stays on while protection is active.\n\nWith Screen Recording permission, the cover shows a locally blurred, frozen screenshot. New messages and window changes do not appear through it. Images stay in memory and are discarded when you return. Without permission, an opaque cover is used.\n\nUse the eye icon in the menu bar to pause or adjust tolerance and blur level. This does not identify you or replace locking your Mac."
-        alert.addButton(withTitle: "Enable protection")
-        alert.addButton(withTitle: "Later")
+        alert.icon = appIcon
+        alert.informativeText = "Cover your displays when you look away. Face the camera to uncover them again."
+        alert.accessoryView = ExplanationView(items: [
+            ExplanationItem(symbol: "camera", title: "Camera stays on this Mac", message: "The camera runs while protection is on. Frames are processed here and never saved."),
+            ExplanationItem(symbol: "rectangle.on.rectangle", title: "A frozen, blurred cover", message: "Allow Screen Recording for a blurred snapshot. Without it, the cover is opaque."),
+            ExplanationItem(symbol: "hand.raised", title: "You stay in control", message: "Pause from the menu bar or press ⌥⌘P. Anyone facing the camera can uncover the screen; this is not a lock.")
+        ])
+        alert.addButton(withTitle: "Enable Protection")
+        alert.addButton(withTitle: "Not Now")
         alert.window.level = .statusBar
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { enableWithPermission() }
@@ -681,23 +697,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "Screen Privacy"
-        if let icon = appIcon {
-            alert.icon = icon
-        }
-        if let logo = brandLogo {
-            let logoView = NSImageView(frame: NSRect(x: 0, y: 0, width: 340, height: 191))
-            logoView.image = logo
-            logoView.imageScaling = .scaleProportionallyUpOrDown
-            logoView.wantsLayer = true
-            logoView.layer?.cornerRadius = 8
-            logoView.layer?.masksToBounds = true
-            alert.accessoryView = logoView
-        }
+        alert.icon = appIcon
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
-        alert.informativeText = "Version \(version) · Open source under the MIT License\n\nthis app made with ❤️ by Matti Vilola (iloapps.com)\n\nLocal head-direction detection. Higher tolerance allows more movement and waits longer before covering.\n\nWhy a frozen cover? A blurred screenshot hides later messages and window changes instead of showing a live view. It needs Screen Recording permission, but takes only a still image per display when covering. Images stay in memory and are discarded on return. Without permission, the cover is opaque.\n\nCamera and screen images are never uploaded. Sparkle contacts GitHub for signed app updates. No accounts or analytics.\n\nAny single person facing the camera can uncover the screen. The frozen image may remain recognizable, and system UI can appear above it. Lock your Mac for security."
+        alert.informativeText = "Version \(version) · Open source under the MIT License\n\nMade with ❤️ by Matti Vilola · iloapps.com"
+        alert.accessoryView = ExplanationView(items: [
+            ExplanationItem(symbol: "lock.shield", title: "Private by design", message: "Camera and screen images stay on this Mac. No account or analytics."),
+            ExplanationItem(symbol: "eye.slash", title: "A cover, not a lock", message: "Anyone facing the camera can uncover it. A frozen image may remain recognizable. Lock macOS for access control."),
+            ExplanationItem(symbol: "arrow.triangle.2.circlepath", title: "Signed app updates", message: "Sparkle checks GitHub for new versions.")
+        ])
+        alert.addButton(withTitle: "Done")
+        alert.addButton(withTitle: "Open Help & Source")
         alert.window.level = .statusBar
         NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
+        if alert.runModal() == .alertSecondButtonReturn,
+           let url = URL(string: "https://github.com/mattivilola/screen-privacy-blur-app#readme") { NSWorkspace.shared.open(url) }
     }
 
     @objc private func quitApp() { NSApp.terminate(nil) }
@@ -714,8 +727,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if CGPreflightScreenCaptureAccess() {
             cover.refreshSnapshotIfNeeded()
             let alert = NSAlert()
-            alert.messageText = "Screen capture is allowed"
-            alert.informativeText = "The cover uses a blurred, frozen screenshot. Images are kept only in memory and discarded when the cover clears."
+            alert.messageText = "Your blurred cover is ready"
+            alert.informativeText = "The cover can show a blurred, frozen snapshot. It stays on this Mac and is discarded when you return."
+            alert.addButton(withTitle: "Done")
             alert.window.level = .statusBar
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
@@ -723,8 +737,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         defaults.set(true, forKey: "screenCaptureExplained")
         let alert = NSAlert()
-        alert.messageText = "Allow a frozen, blurred screen cover"
-        alert.informativeText = "Screen Privacy takes one still image per display when covering, blurs it locally, and keeps it frozen so later messages and window changes stay hidden. Nothing is saved or sent anywhere.\n\nmacOS calls this Screen Recording permission. Without it, protection uses an opaque cover. After granting access, macOS may ask you to quit and reopen the app."
+        alert.messageText = "Allow a blurred screen cover"
+        alert.informativeText = "Use a frozen snapshot instead of an opaque cover."
+        alert.accessoryView = ExplanationView(items: [
+            ExplanationItem(symbol: "rectangle.dashed.badge.record", title: "macOS calls this Screen Recording", message: "Screen Privacy takes one still image per display. The blurred cover stays frozen, hiding later messages and window changes."),
+            ExplanationItem(symbol: "lock.shield", title: "Nothing is saved or uploaded", message: "Snapshots stay in memory and are discarded when you return. macOS may ask you to reopen the app after granting access.")
+        ])
         alert.addButton(withTitle: "Allow Screen Capture")
         alert.addButton(withTitle: "Use Opaque Cover")
         alert.window.level = .statusBar
@@ -799,6 +817,7 @@ extension AppDelegate {
         cover.setVisible(protectionCoverVisible || previewID != nil)
         alarmToggleItem.state = .off
         alarmInfoItem.title = "Off · arms after you look away"
+        alarmExplanation.update(text: "Off. Face the screen, then look away to arm.")
         if alarmAudio.restorationPending {
             updateStatus("Speaker restore pending · retry disarm", tone: .alert)
         } else { updateStatus(protectionStatus, tone: protectionTone) }
@@ -815,8 +834,8 @@ extension AppDelegate {
             return remaining > 0 ? "Alarm arms in \(remaining) s" : "Alarm settling · stand clear"
         case .armed:
             let fresh = !suspended && lastFrame.map { ProcessInfo.processInfo.systemUptime - $0 <= 1.5 } == true
-            if alarm.usesPhysicalPrimary(at: ProcessInfo.processInfo.systemUptime), !sleeping { return "Alarm armed · physical sensor primary" }
-            if fresh { return "Alarm armed · camera fallback" }
+            if alarm.usesPhysicalPrimary(at: ProcessInfo.processInfo.systemUptime), !sleeping { return "Alarm armed · sensing laptop movement" }
+            if fresh { return "Alarm armed · watching camera movement" }
             return "Alarm armed · monitoring unavailable"
         case .alarming: return "ALARM! · disarm from menu or ⌥⌘P"
         }
@@ -842,9 +861,12 @@ extension AppDelegate {
         if alarm.isLatched || alarmTesting { cover.setVisible(canPresent) }
         alarmToggleItem.state = alarmEnabled ? .on : .off
         alarmInfoItem.title = alarmStatus
+        alarmExplanation.update(text: alarmStatus)
         alarmInfoItem.toolTip = "\(hardwareMotion.statusText) · \(keepAwake.statusText)"
-        sensorInfoItem.title = hardwareMotion.statusText
+        sensorInfoItem.title = hardwareMotion.isMonitoring ? (alarm.usesPhysicalPrimary(at: now) ? "Motion sensor ready" : "Motion sensor · keep the Mac still") : "Motion sensor unavailable"
+        sensorInfoItem.toolTip = hardwareMotion.statusText
         powerInfoItem.title = keepAwake.statusText
+        powerInfoItem.toolTip = keepAwake.statusText
         updateStatus(protectionStatus, tone: protectionTone)
     }
 
@@ -889,7 +911,7 @@ extension AppDelegate {
     @objc private func showMotionSensorTest() {
         if let motionSensorTest { motionSensorTest.present(); return }
         let restoreProtection = enabled
-        let test = MotionSensorTestController(sensitivity: alarm.sensitivity)
+        let test = MotionSensorTestController(sensitivity: alarm.sensitivity, protectionWasEnabled: restoreProtection)
         motionSensorTest = test
         disarmAlarm()
         endPreview()

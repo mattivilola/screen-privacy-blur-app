@@ -105,6 +105,9 @@ public final class CoverBrandingView: NSVisualEffectView {
         iconView.setAccessibilityElement(false)
         addSubview(iconView)
 
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("Screen covered")
         messageView.isEditable = false
         messageView.isSelectable = false
         messageView.drawsBackground = false
@@ -136,5 +139,6 @@ public final class CoverBrandingView: NSVisualEffectView {
         messageView.textStorage?.setAttributedString(
             NSAttributedString(string: message, attributes: CoverLayout.attributes(font: layout.font))
         )
+        setAccessibilityValue(message)
     }
 }

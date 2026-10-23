@@ -1,6 +1,6 @@
 # Screen Privacy releases
 
-## Unreleased
+## 0.3.1
 
 - Add a silent **Test motion sensor…** window with raw acceleration, movement/peak values, valid report rate/count, freshness, alarm threshold, and a live graph.
 - Calibrate, then verify a sustained physical-sensor trigger using the real alarm policy without camera input, sound, or flashing. Screen protection pauses during the test and resumes on close; Alarm mode remains disarmed.

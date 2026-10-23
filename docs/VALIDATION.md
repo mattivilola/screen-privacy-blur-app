@@ -52,3 +52,12 @@ Live camera checks, energy profiling, and credentialed distribution verification
 - Offscreen alarm renders were inspected: the armed banner is red at the top, and the triggered cover renders opaque red/white with large ALARM text. The screen alternates at one complete cycle per second. These are rendering checks, not live multi-display or Spaces acceptance.
 - The current Mac already reported `SleepDisabled 1` before helper use; this existing state was left unchanged. Privileged helper registration, live crash/restart restoration, battery/thermal behavior, built-in/external camera lid closure, and physical speaker/headphone switching have not been validated. The helper must report existing sleep policy as externally managed instead of taking ownership.
 - The user tested the local 0.3.0 app and reported that it looked good and started alarming, then requested publication of the minor release. This confirms alarm activation on that setup; it does not establish which detector triggered it, exact volume/mute restoration, siren loudness, or the remaining hardware matrix. Those checks remain unverified and are not implied by the automated results.
+
+
+### 0.3.1 physical sensor checks, 2026-10-23
+
+- Direct read-only SPU capture opened successfully but returned no reports. Requesting only the dedicated accelerometer driver's ReportInterval=1000 produced about 796 reports/second. The registry still displayed zero, so activation success is determined by real reports.
+- Explicitly restoring the saved zero interval stopped reports while the capture callback remained open. No reporting/power-state properties or sleep settings were changed by the sensor diagnostic.
+- The owner tested the updated silent diagnostic and reported that light table bumps stayed quiet while lifting/carrying and slow tilting were detected. This covers one Mac/setup and the owner's saved sensitivity; it is not broad theft-detection validation.
+- The native full test suite and release-tool guard tests passed. After Astra review, 32 focused tests passed for monotonic source selection, physical motion/tilt policy, callback validation, journaled activation/restoration, and recovery-only startup. The final local bundle relaunched with fresh physical readings around 796 reports/second.
+- The complete camera/display/permission matrix, long energy profiling, second-Mac download, and interactive Sparkle upgrade were not repeated for this patch. Distribution signatures, notarization, stapling, checksums, and public feed are checked separately for the published artifacts.
